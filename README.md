@@ -6,6 +6,10 @@ enemy subs, frigates, helicopters, drones and kamikaze belugas.
 It is a single file, `index.html`, with no install, no build and no assets: every graphic is drawn on a
 canvas and every sound is synthesized live.
 
+![screenshot 1](./docs/game1.png)
+
+![screenshot 1](./docs/game2.png)
+
 ## Play
 
 Open `index.html` in a browser (on macOS: `open index.html`). It works offline, with no server.
