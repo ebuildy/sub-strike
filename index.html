@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Bataille sous la mer</title>
+<title>Battle Beneath the Sea</title>
 <style>
   html, body { margin: 0; height: 100%; background: #021428; display: flex; align-items: center; justify-content: center; }
   /* Sky + water gradient lives in CSS (drawn by the GPU for free); the canvas is transparent on top.
@@ -95,6 +95,9 @@ function os(out, t, dur, type, f0, f1, vol, att = 0.004) { // oscillator with a 
 function bubbles(out, t, n, spread, vol) { // each bubble is a tiny upward chirp
   for (let i = 0; i < n; i++) { const f = rnd(300, 900); os(out, t + Math.random() * spread, rnd(0.03, 0.06), 'sine', f, f * rnd(2, 3), vol * rnd(0.5, 1), 0.002); }
 }
+function crackle(out, t, dur, n, vol, k = 1) { // rocket exhaust crackle: many tiny noise pops
+  for (let i = 0; i < n; i++) { const f = rnd(1500, 5000) * k; nz(out, t + Math.random() * dur * (0.4 + 0.6 * Math.random()), rnd(0.008, 0.025), vol * rnd(0.4, 1), 'bandpass', f, f * 0.7, 1.5, 0.001); }
+}
 const sfx = {
   shoot(x) { // torpedo tube: water-ram thump, air whoosh, bubbles, then the motor spins up
     if (!ac) return; const t = ac.currentTime, o = sfxOut(x, 0.35, 1.2);
@@ -125,14 +128,33 @@ const sfx = {
     os(o, t, 0.22, 'sine', 140, 50, 0.22);
     if (y == null || y > SURFACE) bubbles(o, t + 0.05, 4, 0.3, 0.04);
   },
-  launch(x) { // H-bomb ejected from the sub by gas pressure
-    if (!ac) return; const t = ac.currentTime, o = sfxOut(x, 0.45, 2);
-    os(o, t, 0.45, 'sine', 70, 30, 0.5);
-    nz(o, t, 0.7, 0.3, 'lowpass', 900, 150, 0.7, 0.01);
-    bubbles(o, t + 0.05, 14, 0.9, 0.06);
+  bubbles(x) { // bubble screen: compressed air blasts out of the hull, then a long fizz of rising bubbles
+    if (!ac) return; const t = ac.currentTime, o = sfxOut(x, 0.6, 2.5);
+    nz(o, t, 0.5, 0.4, 'lowpass', 1800, 180, 0.7, 0.005);
+    os(o, t, 0.4, 'sine', 90, 35, 0.4);
+    nz(o, t + 0.05, 1.6, 0.08, 'bandpass', 900, 2600, 1.2, 0.1);
+    bubbles(o, t + 0.05, 45, 1.6, 0.05);
+  },
+  launch(x) { // H-bomb ejected from the tube by a gas generator: hard thump, gas blast, hiss, bubbles
+    if (!ac) return; const t = ac.currentTime, o = sfxOut(x, 0.5, 2);
+    os(o, t, 0.5, 'sine', 90, 28, 0.6, 0.002);
+    nz(o, t, 0.08, 0.4, 'lowpass', 2500, 600, 0.7, 0.001);
+    nz(o, t, 0.8, 0.32, 'lowpass', 1200, 150, 0.7, 0.01);
+    nz(o, t + 0.02, 0.35, 0.12, 'highpass', 3000, 1500, 0.7, 0.01);
+    bubbles(o, t + 0.05, 18, 0.9, 0.06);
+  },
+  motor(x, under) { // rocket motor lights: ignition crack, then a roaring, crackling burn (muffled under water)
+    if (!ac) return; const t = ac.currentTime, o = sfxOut(x, under ? 0.6 : 0.3, 3), k = under ? 0.35 : 1;
+    nz(o, t, 0.06, 0.45, 'highpass', 4000 * k, 1500 * k, 0.7, 0.001);
+    nz(o, t, 2.4, 0.42, 'lowpass', 3000 * k, 500 * k, 0.6, 0.03);
+    nz(o, t, 2.2, 0.14, 'bandpass', 1800 * k, 700 * k, 0.9, 0.05);
+    os(o, t, 2.0, 'sawtooth', 55, 95, 0.05, 0.08);
+    crackle(o, t + 0.05, 1.8, under ? 18 : 40, under ? 0.06 : 0.12, k);
+    if (under) bubbles(o, t, 26, 1.8, 0.05);
   },
   ignite(x) { // rocket motor lights as it leaves the water, then roars away
     if (!ac) return; const t = ac.currentTime, o = sfxOut(x, 0.3, 2.5);
+    crackle(o, t + 0.05, 1.6, 30, 0.1);
     nz(o, t, 0.25, 0.4, 'lowpass', 5000, 1500, 0.7, 0.003);
     nz(o, t, 2.2, 0.38, 'lowpass', 3500, 500, 0.6, 0.06);
     nz(o, t, 2.0, 0.12, 'bandpass', 2500, 900, 0.8, 0.05);
@@ -153,11 +175,16 @@ const sfx = {
     os(o, t, 0.35, 'sine', 190, 55, 0.35);
     for (const f of [430, 1170, 1890]) os(o, t, 0.7, 'sine', f, f * 0.97, 0.05, 0.002);
   },
-  gun(x) { // frigate gun: sharp crack, blast, thump
-    if (!ac) return; const t = ac.currentTime, o = sfxOut(x, 0.3, 1.2);
-    nz(o, t, 0.06, 0.4, 'highpass', 2500, 1200, 0.7, 0.001);
-    nz(o, t, 0.5, 0.3, 'lowpass', 1800, 150);
-    os(o, t, 0.35, 'sine', 110, 45, 0.3);
+  sam(x) { // Rampart air/air missile: sharp crack, then a short hissing whoosh
+    if (!ac) return; const t = ac.currentTime, o = sfxOut(x, 0.3, 1.5);
+    nz(o, t, 0.06, 0.35, 'highpass', 3000, 1500, 0.7, 0.001);
+    nz(o, t, 1.0, 0.22, 'bandpass', 4000, 1200, 0.9, 0.02);
+    os(o, t, 0.3, 'sine', 120, 50, 0.2);
+  },
+  droneOut(x) { // drone thrown out of a Rampart module: pneumatic thump, then its rotors spin up
+    if (!ac) return; const t = ac.currentTime, o = sfxOut(x, 0.25, 1.5);
+    nz(o, t, 0.25, 0.3, 'lowpass', 1500, 200, 0.7, 0.003);
+    os(o, t + 0.1, 0.9, 'sawtooth', 120, 420, 0.04, 0.2);
   },
   die(x) { // our hull groans after the hit
     if (!ac) return; const t = ac.currentTime, o = sfxOut(x, 0.5, 2);
@@ -250,11 +277,11 @@ function music() {
 
 // ---------- Shop ----------
 const SHIPS = [
-  { name: 'Classique',    price: 0,   color: '#e8e8e8', speed: 3.5, cool: 15, lives: 5, desc: 'Le sous-marin de base' },
-  { name: 'Eclair',       price: 15,  color: '#22b8e6', speed: 5.5, cool: 15, lives: 5, desc: 'Tres rapide' },
-  { name: 'Mitrailleuse', price: 30,  color: '#e8452c', speed: 3.5, cool: 7,  lives: 5, desc: 'Tire tres vite' },
-  { name: 'Tank',         price: 50,  color: '#7a8f3a', speed: 3,   cool: 15, lives: 9, desc: '9 vies' },
-  { name: 'Super Star',   price: 100, color: '#c13cff', speed: 4.5, cool: 10, lives: 6, double: true, desc: 'Recharge rapide pour toujours !' },
+  { name: 'Standard',     price: 0,   color: '#e8e8e8', speed: 3.5, cool: 15, lives: 5, desc: 'Standard-issue attack sub' },
+  { name: 'Lightning',    price: 15,  color: '#22b8e6', speed: 5.5, cool: 15, lives: 5, desc: 'Flank speed' },
+  { name: 'Gunner',       price: 30,  color: '#e8452c', speed: 3.5, cool: 7,  lives: 5, desc: 'High rate of fire' },
+  { name: 'Ironclad',     price: 50,  color: '#7a8f3a', speed: 3,   cool: 15, lives: 9, desc: 'Heavy armor: 9 lives' },
+  { name: 'Super Star',   price: 100, color: '#c13cff', speed: 4.5, cool: 10, lives: 6, double: true, desc: 'Permanent rapid reload' },
 ];
 function load(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v ?? d; } catch { return d; } }
 function save() { try { localStorage.setItem('si_coins', coins); localStorage.setItem('si_owned', JSON.stringify(owned)); localStorage.setItem('si_ship', shipIdx); } catch {} }
@@ -263,9 +290,14 @@ const ship = () => SHIPS[shipIdx];
 
 // ---------- Game state ----------
 let state = 'title', score, lives, level, player, torps, enemies, eShots, pickups, particles = [];
-let bullets = [], laser = null, decoys = [], decoyCool = 0, missiles = [], hbombs = 8, airTimer = 0, whiteFlash = 0;
+let myDrone = null, droneRocket = null, droneAmmo = 1; // our air drone (W): rocket, then the drone itself
+let bullets = [], laser = null, decoys = [], decoyCool = 0, bubbleAmmo = 5, bubbleCool = 0, missiles = [], hbombs = 8, airTimer = 0, whiteFlash = 0;
+let dashMsg = '', dashA = 0, dashRed = false; // dashRed: danger message (red), else info (orange) // bottom dashboard: last message and its show/hide amount (0..1)
 let camX = 0, dist, levelLen, scroll, spawnTimer, coinTimer, kills, allies, flash, nextTimer, shake = 0;
-const SURF_Y = SURFACE - 25, CIWS_RANGE = 340, CIWS_HITS = 10; // surfaced: sail and hull top out of the water; rounds per hp
+const WARN_RANGE = 400, WARN_RED = 150; // threat warning: starts beeping at 400 px, red under 150 px
+const SUB_CM_LEVEL = 3, SUB_CM_RANGE = 220, SUB_CM_SAVE = 0.5; // enemy sub decoys: from level 3, reaction range (px), chance to try
+const RAMPART_AA = 480, RAMPART_ASW = 260, RAMPART_SAVE = 0.5; // ASW: anti-torpedo range (px) and chance to try an interception // px: the Rampart fires an air/air missile at an H-bomb in the sky within this range
+const SURF_Y = SURFACE - 25, CIWS_RANGE = 340, CIWS_HITS = 10, ASM_HITS = 3; // rounds to down an anti-ship missile // surfaced: sail and hull top out of the water; rounds per hp
 const LASER_RANGE = 150, LASER_BURN = 180, MINE_BURN = 45; // short range; 3 s of beam per damage point, mines pop in 0.75 s
 const hasDouble = () => player.double > 0 || ship().double;
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -278,7 +310,7 @@ function allyBox(i) { return { x: player.x - 64, y: i === 0 ? Math.max(SURFACE +
 
 function reset() {
   score = 0; lives = ship().lives; level = 1; kills = 0; allies = 0;
-  player = { x: 80, y: H / 2, vx: 0, vy: 0, cool: 0, inv: 0, double: 0, jam: 0, up: false, ciws: 0, ciwsA: -0.9 };
+  player = { x: 80, y: H / 2, vx: 0, vy: 0, cool: 0, inv: 0, double: 0, jam: 0, up: false, ciws: 0, ciwsA: -0.9, threat: Infinity, beepT: 0 };
   startLevel();
 }
 
@@ -290,9 +322,13 @@ function startLevel() {
   spawnTimer = 120; coinTimer = 60; airTimer = 400;
   missiles = []; hbombs = 8; // super weapon refilled every level
   decoys = []; decoyCool = 0;
-  flash = { msg: 'NIVEAU ' + level, t: 120 };
-  belugaLeft = level * 2 - 1; belugaGap = (levelLen - 1000) / belugaLeft; nextBeluga = 300 + belugaGap * 0.4;
-  enemies.push({ type: 'boat', x: W + 40, y: SURFACE - 24, w: 110, h: 40, hp: 3, pts: 40, fire: 120, gun: 150, gunA: 0.2 }); // a frigate opens every level
+  bubbleAmmo = BUBBLE_AMMO; bubbleCool = 0; // bubble screen refilled every level
+  droneAmmo = 1; myDrone = droneRocket = null; // one air drone per level
+  flash = { msg: 'MISSION ' + level + ' - WEAPONS FREE', t: 120 };
+  if (level >= LIFE_LEVEL && lives < 3) { lives++; flash = { msg: 'MISSION ' + level + ' - RESUPPLY: +1 LIFE', t: 120 }; } // hard missions: a helping hand
+  heartsLeft = level >= LIFE_LEVEL ? LIFE_DROPS : 0; nextHeart = levelLen * 0.3; // life pickups, at 30% and 65% of the mission
+  belugaLeft = level >= UNLOCK.swimmers ? level * 2 - 3 : 0; belugaGap = (levelLen - 1000) / belugaLeft; nextBeluga = 300 + belugaGap * 0.4;
+  enemies.push({ type: 'boat', x: W + 40, y: SURFACE - 24, w: 110, h: 40, hp: 3, pts: 40, fire: 120, rpA: -2.6 }); // a frigate opens every level
 }
 
 function boom(x, y, big = true) {
@@ -322,7 +358,7 @@ function impact(x, y, e) {
     const an = Math.random() * Math.PI * 2, sp = rnd(3, 6);
     particles.push({ kind: 'spark', x, y, vx: Math.cos(an) * sp, vy: Math.sin(an) * sp, life: 14, max: 14 });
   }
-  const bits = e.type === 'octo' ? ['#7a2a9a', '#b04ad8'] : e.type === 'eel' ? ['#4e4b2c', '#8c7f45', '#ffe14a'] : e.type === 'beluga' || e.type === 'diver' ? ['#3a3f45', '#222', '#555'] : ['#3a3f45', '#6b7682', '#222', e.type === 'boat' ? '#c62828' : '#555'];
+  const bits = e.type === 'octo' ? ['#7a3a2c', '#9a5240'] : e.type === 'eel' ? ['#4e4b2c', '#8c7f45', '#ffe14a'] : e.type === 'beluga' || e.type === 'diver' ? ['#3a3f45', '#222', '#555'] : ['#3a3f45', '#6b7682', '#222', e.type === 'boat' ? '#c62828' : '#555'];
   for (let i = 0; i < 6; i++) // pieces fly away from the torpedo, then sink
     particles.push({ kind: 'debris', x, y, vx: rnd(-1, 2.5), vy: rnd(-2, 1), life: 80, max: 80, size: rnd(2, 4.5), rot: rnd(0, 6), spin: rnd(-0.3, 0.3), color: bits[i % bits.length] });
   for (let i = 0; i < 3; i++)
@@ -342,9 +378,9 @@ function addMark(e, hx) {
   });
 }
 
-// H-bomb blast: destroys every boat, helicopter and drone nearby
+// H-bomb blast: a huge show, but it only destroys the one sub or ship it struck (victim)
 const BLAST = 120;
-function megaBoom(x, y) {
+function megaBoom(x, y, victim) {
   const colors = ['#ffffff', '#fff7a8', '#ffd23f', '#ff8c1a', '#ff4500'];
   for (let i = 0; i < 70; i++) {
     const an = Math.random() * Math.PI * 2, sp = rnd(1, 9);
@@ -355,16 +391,33 @@ function megaBoom(x, y) {
   particles.push({ kind: 'ring', x, y, life: 35, max: 35, r: BLAST * 1.3 });
   particles.push({ kind: 'ring', x, y, life: 25, max: 25, r: BLAST * 0.7 });
   shake = 20; whiteFlash = 0.8; sfx.mega(x, y);
-  for (const e of enemies)
-    if (!e.dead && ['boat', 'heli', 'drone'].includes(e.type) && Math.hypot(e.x + e.w / 2 - x, e.y + e.h / 2 - y) < BLAST + e.w / 2) killEnemy(e);
-  for (const sh of eShots) if (Math.hypot(sh.x - x, sh.y - y) < BLAST) sh.dead = true;
+  if (victim && !victim.dead) killEnemy(victim);
 }
 
 // Decoys (D): a pair of noisy sonar lures, one thrown up and one down. Belugas, enemy torpedoes,
 // mines and depth charges go for the nearest decoy instead of the sub and blow up on it.
 const DECOY_RANGE = 400, DECOY_LIFE = 360, DECOY_COOL = 300; // px, steps (6 s), steps (5 s): unlimited, reload time
+// Progressive missions (owner: level 1 must stay simple): weapons and threats unlock with the mission number
+const UNLOCK = { decoys: 2, swimmers: 2, bubbles: 3, drone: 3 };
+function locked(what) { // true (with a buzz and a message) while that weapon is not issued yet
+  if (level >= UNLOCK[what]) return false;
+  sfx.denied(); flash = { msg: 'NOT ISSUED BEFORE MISSION ' + UNLOCK[what], t: 50 };
+  return true;
+}
+// Mission briefing shown before each new mission (ENTER or 5 s): what is new
+const NEWS = {
+  2: [['D', 'DECOYS ISSUED: lure torpedoes, mines and whales'], ['!', 'NEW THREAT: KAMIKAZE WHALES with bombs'],
+      ['!', 'NEW THREAT: COMBAT SWIMMERS from ships and helos'], ['!', 'NEW THREAT: ELECTRIC EELS jam your weapons']],
+  3: [['E', 'BUBBLE SCREEN ISSUED: blasts close threats away'], ['W', 'AIR DRONE ISSUED: kills drones, rams helos'],
+      ['!', 'ENEMY SUBS now deploy decoys']],
+  5: [['+', 'RESUPPLY: +1 life at start when under 3 lives'], ['+', '2 MEDEVAC CRATES per mission: +1 life each'],
+      ['!', 'HEAVIER RESISTANCE: more and faster enemies']],
+};
+const BRIEF_TIME = 300; // 5 s
+let briefT = 0;
+
 function throwDecoys() {
-  if (decoyCool > 0) return;
+  if (locked('decoys') || decoyCool > 0) return;
   decoyCool = DECOY_COOL;
   for (const dir of [-1, 1]) decoys.push({ x: player.x + 40, y: player.y + 22, vx: -0.8, vy: dir * 4, life: DECOY_LIFE });
   tone(1800, 0.12, 'sine', 0.08); setTimeout(() => tone(1800, 0.12, 'sine', 0.08), 120);
@@ -376,10 +429,113 @@ function decoyNear(x, y, range = DECOY_RANGE) { // nearest live decoy within ran
 }
 function popDecoy(d) { d.life = 0; boom(d.x, d.y, false); }
 
+// Bubble screen (E): a burst of air all around the hull pushes away everything close.
+// Defense only: mines, belugas, swimmers, octopuses and depth charges are washed out (harmless to the sub),
+// subs and eels are only pushed, enemy torpedoes are turned away
+const BUBBLE_AMMO = 5, BUBBLE_RANGE = 120, BUBBLE_COOL = 45; // per level, px from the sub center, steps between bursts
+const BUBBLE_SMALL = ['mine', 'beluga', 'diver', 'octo'];
+function bubbleBurst() {
+  if (locked('bubbles') || bubbleAmmo <= 0 || bubbleCool > 0) return;
+  bubbleAmmo--; bubbleCool = BUBBLE_COOL; sfx.bubbles(player.x + 46);
+  const px = player.x + 46, py = player.y + 24;
+  for (let i = 0; i < 90; i++) { // air jets out of the whole hull
+    const a = rnd(0, 7), r = rnd(0.6, 1), v = rnd(2.5, 6);
+    particles.push({ kind: 'bubble', x: px + Math.cos(a) * 40 * r, y: py + Math.sin(a) * 12 * r, vx: Math.cos(a) * v, vy: Math.sin(a) * v, drag: 0.92, life: rnd(40, 70), max: 70, size: rnd(1, 3.5) });
+  }
+  particles.push({ kind: 'ring', x: px, y: py, life: 24, max: 24, r: BUBBLE_RANGE });
+  particles.push({ kind: 'ring', x: px, y: py, life: 16, max: 16, r: BUBBLE_RANGE * 0.7 });
+  for (const e of enemies) {
+    if (e.dead || e.type === 'boat' || e.type === 'heli' || e.type === 'drone' || e.type === 'rock' || e.air || e.y + e.h < SURFACE) continue;
+    const dx = e.x + e.w / 2 - px, dy = e.y + e.h / 2 - py, d = Math.hypot(dx, dy) || 1;
+    if (d > BUBBLE_RANGE + e.w / 2) continue;
+    const small = BUBBLE_SMALL.includes(e.type), v = small ? 7 : 5; // big enemies are heavy: pushed less far
+    e.blow = small ? 26 : 30; e.bx = dx / d * v; e.by = dy / d * v * 0.7; e.small = small;
+    if (small) e.fuse = 0; // the air washes the fuse out
+  }
+  for (const s of eShots) {
+    if (s.y < SURFACE) continue;
+    const dx = s.x + s.w / 2 - px, dy = s.y + s.h / 2 - py, d = Math.hypot(dx, dy) || 1;
+    if (d > BUBBLE_RANGE) continue;
+    if (s.type === 'torp') { // turned away, keeps its speed
+      const v = Math.hypot(s.vx, s.vy || 0), h = Math.atan2(dy, dx);
+      s.vx = Math.cos(h) * v; s.vy = Math.sin(h) * v; s.a = h - Math.PI;
+    } else if (s.type === 'charge') { s.dead = true; sfx.pop(s.x, s.y); score += 5; }
+  }
+}
+
+// Air drone (W): a rocket rises to the surface, bursts and throws our drone (dark gray, green lights).
+// It shoots enemy drones with its laser and dives kamikaze into helicopters. Enemy drones can laser it too
+const MY_DRONE_RANGE = 230, MY_DRONE_AIM = 54, MY_DRONE_LOCK = 18, MY_DRONE_BEAM = 15; // px, steps
+function launchDrone() {
+  if (locked('drone') || droneAmmo <= 0 || droneRocket || myDrone || player.jam) return;
+  droneAmmo--; sfx.launch(player.x + 60);
+  droneRocket = { x: player.x + 58, y: player.y + 6, vy: -0.6 };
+}
+function updateMyDrone() {
+  const r = droneRocket;
+  if (r) { // rocket: straight up, bursts at the surface
+    r.vy = Math.max(-3.2, r.vy - 0.08); r.y += r.vy; r.x += 0.2;
+    particles.push({ kind: 'bubble', x: r.x + 2 + rnd(-2, 2), y: r.y + 10, vx: rnd(-0.3, 0.3), vy: rnd(-0.6, 0), life: 35, max: 35, size: rnd(1, 2.2) });
+    if (r.y < SURFACE - 4) {
+      droneRocket = null; sfx.pop(r.x, SURFACE - 6); sfx.droneOut(r.x);
+      particles.push({ kind: 'flash', x: r.x + 2, y: SURFACE - 6, life: 8, max: 8, size: 6 });
+      for (let i = 0; i < 14; i++) particles.push({ kind: 'drop', x: r.x + rnd(-6, 6), y: SURFACE, vx: rnd(-1.5, 1.5), vy: rnd(-3.5, -1), life: 40, max: 40, size: rnd(1.5, 2.5) });
+      for (let i = 0; i < 6; i++) particles.push({ kind: 'smoke', x: r.x + rnd(-4, 4), y: SURFACE - 8, vx: rnd(-0.5, 0.5), vy: rnd(-0.6, 0), life: 40, max: 40, size: rnd(2.5, 4), color: '#d9dde0' });
+      myDrone = { type: 'drone', mine: true, x: r.x - 14, y: SURFACE - 16, w: 32, h: 14, vx: 0, vy: -2.5, t: 0, aim: 0, beam: 0, fire: 20 };
+      flash = { msg: 'DRONE AWAY', t: 50 };
+    }
+  }
+  const d = myDrone;
+  if (!d) return;
+  d.t += 0.02;
+  const ox = d.x + 12, oy = d.y + 12;
+  let foe = null, fd = Infinity; // closest enemy drone, else the helicopter
+  for (const e of enemies) if (e.type === 'drone' && !e.dead && e.x < W) { const dd = Math.hypot(e.x + 12 - ox, e.y + 12 - oy); if (dd < fd) { fd = dd; foe = e; } }
+  const heli = !foe && enemies.find(e => e.type === 'heli' && !e.dead && e.x < W - 10);
+  let gx, gy, sp = 2.2;
+  if (foe) { gx = foe.x + (foe.x > ox ? -130 : 130); gy = foe.y; }            // stand off and shoot
+  else if (heli) { gx = heli.x + heli.w / 2 - 16; gy = heli.y + 6; sp = 4.5;  // kamikaze
+    if (!d.dive) { d.dive = true; tone(600, 0.8, 'sawtooth', 0.05, 1500); if (!flash) flash = { msg: 'DRONE ON ATTACK RUN', t: 50 }; } }
+  else { gx = player.x + 120; gy = 28 + Math.sin(d.t * 2) * 6; }             // waits over the sub
+  const dx = gx - d.x, dy = gy - d.y, dd = Math.hypot(dx, dy) || 1, k = Math.min(1, dd / 40);
+  d.vx += (dx / dd * sp * k - d.vx) * 0.08; d.vy += (dy / dd * sp * k - d.vy) * 0.08;
+  d.x += d.vx; d.y += d.vy;
+  d.x = Math.max(0, Math.min(W - 32, d.x)); d.y = Math.max(6, Math.min(SURFACE - 18, d.y));
+  if (heli && Math.hypot(heli.x + heli.w / 2 - d.x - 16, heli.y + heli.h / 2 - d.y - 7) < 22) { // impact
+    myDrone = null; killEnemy(heli); shake = Math.max(shake, 8); flash = { msg: 'SPLASH ONE HELO', t: 60 }; return;
+  }
+  // laser duel: aims (tracks, then locks), fires a short green beam
+  if (d.beam > 0) {
+    d.beam--;
+    const lx = d.tx - ox, ly = d.ty - oy, ll = Math.hypot(lx, ly) || 1, c = lx / ll, sn = ly / ll;
+    let x2 = ox, y2 = oy;
+    for (let q = 0; q < ll + 14; q += 3) {
+      x2 = ox + c * q; y2 = oy + sn * q;
+      if (y2 > SURFACE || x2 < -20 || x2 > W + 20) break;
+      const e = enemies.find(e => e.type === 'drone' && !e.dead && x2 > e.x - 2 && x2 < e.x + e.w + 2 && y2 > e.y - 2 && y2 < e.y + e.h + 2);
+      if (e) { killEnemy(e); d.beamHit = true; flash = { msg: 'SPLASH ONE DRONE', t: 50 }; break; }
+    }
+    d.lx = x2; d.ly = y2;
+    if (d.beam === 0) d.fire = 50;
+  } else if (d.aim > 0) {
+    d.aim--;
+    if (d.aim >= MY_DRONE_LOCK && foe) { d.tx = foe.x + 16; d.ty = foe.y + 7; }
+    if (d.aim % 8 === 0) tone(2000, 0.04, 'sine', 0.035);
+    if (d.aim === 0) { d.beam = MY_DRONE_BEAM; d.beamHit = false; d.lx = d.tx; d.ly = d.ty; tone(2400, 0.3, 'sawtooth', 0.06, 900); }
+  } else if (d.fire > 0) d.fire--;
+  else if (foe && fd < MY_DRONE_RANGE) { d.aim = MY_DRONE_AIM; d.tx = foe.x + 16; d.ty = foe.y + 7; }
+}
+function killMyDrone() { // shot down by an enemy drone
+  const d = myDrone; myDrone = null;
+  boom(d.x + 16, d.y + 7); flash = { msg: 'DRONE DOWN', t: 60, danger: true };
+  const w = { ...d, flash: 0, marks: [] }; for (let i = 0; i < 2; i++) addMark(w, w.x + rnd(0, 16)); // the wreck needs burn marks
+  particles.push({ kind: 'wreck', e: w, x: 0, y: 0, vy: 0.1, rot: 0, spin: 0.01, air: true, life: 220, max: 220 });
+}
+
 function fireHBomb() {
   if (hbombs <= 0 || missiles.length || player.jam) return;
   hbombs--; sfx.launch(player.x + 60);
-  missiles.push({ x: player.x + 60, y: player.y + 4, w: 5, h: 14, vy: -0.4, under: true });
+  missiles.push({ x: player.x + 60, y: player.y + 4, w: 5, h: 14, vy: -0.4, under: true, guided: !!player.lock, target: player.lock, a: -Math.PI / 2, v: 0.4, t: 0 });
 }
 
 function spawnAir() {
@@ -390,6 +546,8 @@ function spawnAir() {
 }
 
 // Kamikaze belugas: 1 in level 1, 3 in level 2, 5 in level 3... spread evenly over the level
+const LIFE_LEVEL = 5, LIFE_DROPS = 2; // from mission 5: +1 life at start if under 3, and 2 life pickups per mission
+let heartsLeft = 0, nextHeart = 0;
 let belugaLeft = 0, belugaGap = 0, nextBeluga = 0;
 function spawnBeluga() {
   enemies.push({ type: 'beluga', x: W + 40, y: rnd(SURFACE + 50, H - 150), w: 50, h: 26, hp: 1, pts: 100, t: 0, vx: 0, vy: 0, face: -1, life: 720, bomb: true });
@@ -413,11 +571,11 @@ function spawnEnemy() {
     enemies.push({ type: 'mine', x, y: rnd(SURFACE + 60, gy - 70), w: 20, h: 20, hp: 1, pts: 10, t: rnd(0, 6) });
   } else if (r < 0.5) {
     const y = rnd(SURFACE + 50, H - 140);
-    enemies.push({ type: 'octo', x, y, baseY: y, w: 34, h: 30, hp: 2, pts: 20, t: rnd(0, 6), vx: 0.3 });
+    enemies.push({ type: 'octo', x, y, baseY: y, w: 34 * OCTO_K, h: 30 * OCTO_K, hp: 2, pts: 20, t: rnd(0, 6), vx: 0.3 });
   } else if (r < 0.5 + subChance) {
     enemies.push({ type: 'sub', x, y: rnd(SURFACE + 40, H - 160), w: 108, h: 40, hp: 3, pts: 50, vx: 0.15, fire: rnd(80, 180) });
   } else if (r < 0.5 + subChance + boatChance && !enemies.some(e => e.type === 'boat')) {
-    enemies.push({ type: 'boat', x, y: SURFACE - 24, w: 110, h: 40, hp: 3, pts: 40, fire: 120, gun: 150, gunA: 0.2 });
+    enemies.push({ type: 'boat', x, y: SURFACE - 24, w: 110, h: 40, hp: 3, pts: 40, fire: 120, rpA: -2.6 });
   } else {
     const h = rnd(50, Math.min(150, 90 + level * 10));
     enemies.push({ type: 'rock', x, y: groundY(camX + x) - h, w: 36, h: h + 20, hp: Infinity });
@@ -429,7 +587,7 @@ function spawnEnemy() {
 const JAM_TIME = 600;
 function shockPlayer(e) {
   e.spent = true; player.jam = JAM_TIME; shake = Math.max(shake, 6);
-  sfx.shock(player.x + 46); flash = { msg: 'CHOC ELECTRIQUE ! ARMES EN PANNE', t: 120 };
+  sfx.shock(player.x + 46); flash = { msg: 'EMP HIT - WEAPONS OFFLINE', t: 120, danger: true };
   for (let i = 0; i < 24; i++) {
     const an = Math.random() * Math.PI * 2, sp = rnd(1, 3.5);
     particles.push({ kind: 'spark', x: player.x + 46 + rnd(-30, 30), y: player.y + 24 + rnd(-6, 6), vx: Math.cos(an) * sp, vy: Math.sin(an) * sp, life: 18, max: 18, size: rnd(1, 2), color: '#9ff' });
@@ -445,7 +603,8 @@ function bolt(x1, y1, x2, y2) { // zigzag lightning line
 // It aims for 1 s (thin blinking line), locks the target for the last 0.5 s (time to dodge), then fires for 1/3 s.
 const DRONE_DEPTH = 100, DRONE_AIM = 60, DRONE_LOCK = 30, DRONE_BEAM = 20;
 function droneLaser(e) {
-  const ox = e.x + 12, oy = e.y + 12, px = player.x + 46, py = player.y + 24;
+  const ox = e.x + 12, oy = e.y + 12, md = myDrone && Math.hypot(myDrone.x + 16 - ox, myDrone.y + 7 - oy) < 260 ? myDrone : null;
+  const px = e.atMine && md ? md.x + 16 : player.x + 46, py = e.atMine && md ? md.y + 7 : player.y + 24; // our drone first, when it is near
   if (e.beam > 0) {
     e.beam--;
     const dx = e.tx - ox, dy = e.ty - oy, dd = Math.hypot(dx, dy) || 1, c = dx / dd, sn = dy / dd;
@@ -455,6 +614,7 @@ function droneLaser(e) {
       x2 = ox + c * d; y2 = oy + sn * d;
       if (y2 > SURFACE + DRONE_DEPTH || y2 > groundY(camX + x2) || x2 < -20 || x2 > W + 20) break;
       if (!e.beamHit && x2 > pb.x - 2 && x2 < pb.x + pb.w + 2 && y2 > pb.y - 2 && y2 < pb.y + pb.h + 2) { e.beamHit = true; damagePlayer(); }
+      if (myDrone && x2 > myDrone.x - 2 && x2 < myDrone.x + myDrone.w + 2 && y2 > myDrone.y - 2 && y2 < myDrone.y + myDrone.h + 2) { e.beamHit = true; killMyDrone(); }
       for (let i = allies - 1; i >= 0; i--) {
         const ab = allyBox(i);
         if (x2 > ab.x && x2 < ab.x + ab.w && y2 > ab.y && y2 < ab.y + ab.h) { allies--; boom(ab.x + 28, ab.y + 12, false); }
@@ -470,9 +630,9 @@ function droneLaser(e) {
     e.aim--;
     if (e.aim >= DRONE_LOCK) { e.tx = px; e.ty = py; }                              // tracks, then locks: the sub can dodge
     if (e.aim % 10 === 0) tone(1400, 0.05, 'square', 0.04);
-    if (e.aim === 0) { e.beam = DRONE_BEAM; e.beamHit = false; tone(1800, 0.35, 'sawtooth', 0.08, 500); }
+    if (e.aim === 0) { e.beam = DRONE_BEAM; e.beamHit = false; e.lx = e.tx; e.ly = e.ty; tone(1800, 0.35, 'sawtooth', 0.08, 500); }
   } else if (e.fire > 0) e.fire--;
-  else if (player.y < SURFACE + 70 && Math.abs(px - ox) < 260 && e.x > 0 && e.x < W - 40) e.aim = DRONE_AIM; // sub near the surface
+  else if ((md || player.y < SURFACE + 70 && Math.abs(px - ox) < 260) && e.x > 0 && e.x < W - 40) { e.aim = DRONE_AIM; e.atMine = !!md; } // our drone, or the sub near the surface
 }
 
 // Proximity fuse: mines and depth charges arm when the sub comes close, beep fast, then blow up
@@ -487,14 +647,9 @@ function proximityFuse(o, x, y) { // returns true when it explodes
   particles.push({ kind: 'ring', x, y, life: 20, max: 20, r: MINE_BLAST });
   shake = Math.max(shake, 8);
   if (distToPlayer(x, y) < MINE_BLAST) damagePlayer();
-  if (o.type === 'beluga' || o.type === 'diver') freeSwimmer(o);
   for (const d of decoys) if (d.life > 0 && Math.hypot(d.x - x, d.y - y) < MINE_BLAST) d.life = 0;
   for (let i = allies - 1; i >= 0; i--) { const a = allyBox(i); if (Math.hypot(a.x + a.w / 2 - x, a.y + a.h / 2 - y) < MINE_BLAST) { allies--; boom(a.x + 28, a.y + 12, false); } }
   return true;
-}
-
-function freeSwimmer(e) { // the bomb is gone: the beluga / swimmer swims away safe (kids' game: nobody dies)
-  particles.push({ kind: 'freed', e: { ...e, bomb: false, fuse: 0, flash: 0 }, life: 200, max: 200 });
 }
 
 // Homing swimmers (beluga, diver): steer toward the nearest decoy, else the sub; give up when life runs out.
@@ -520,27 +675,26 @@ function damagePlayer() {
   if (lives <= 0) { state = 'over'; sfx.lose(); }
 }
 
-function killEnemy(e) {
+function killEnemy(e, safe) { // safe: the swimmer's bomb can't hurt the sub (bubble screen)
   e.dead = true; boom(e.x + e.w / 2, e.y + e.h / 2);
   if (['sub', 'boat', 'heli', 'drone'].includes(e.type)) { // burning wreck sinks (or falls into the sea)
     const w = { ...e, flash: 0, marks: [...(e.marks || [])] };
     for (let i = 0; i < 3; i++) addMark(w, w.x + rnd(0, w.w * 0.5));
     particles.push({ kind: 'wreck', e: w, x: 0, y: 0, vy: 0.1, rot: 0, spin: rnd(0.004, 0.01) * (Math.random() < 0.5 ? -1 : 1), air: e.type === 'heli' || e.type === 'drone', life: 220, max: 220 });
   }
-  if (e.type === 'beluga' || e.type === 'diver') { // bomb destroyed: big blast, the swimmer is free
+  if (e.type === 'beluga' || e.type === 'diver') { // bomb destroyed: big blast, the carrier is neutralized
     const bx = e.x + e.w / 2, by = e.y + 2;
     particles.push({ kind: 'ring', x: bx, y: by, life: 20, max: 20, r: MINE_BLAST }); shake = Math.max(shake, 8);
-    if (distToPlayer(bx, by) < MINE_BLAST) damagePlayer();
-    freeSwimmer(e);
+    if (!safe && distToPlayer(bx, by) < MINE_BLAST) damagePlayer();
   }
   if (e.type === 'octo') for (let i = 0; i < 10; i++) // ink cloud
-    particles.push({ kind: 'smoke', x: e.x + 17 + rnd(-12, 12), y: e.y + 12 + rnd(-12, 12), vx: rnd(-0.4, 0.4), vy: rnd(-0.3, 0.3), life: 90, max: 90, size: rnd(6, 12), color: '#2a0f3a' });
+    particles.push({ kind: 'smoke', x: e.x + e.w / 2 + rnd(-6, 6), y: e.y + e.h / 2 + rnd(-6, 6), vx: rnd(-0.4, 0.4), vy: rnd(-0.3, 0.3), life: 90, max: 90, size: rnd(6, 12), color: '#2a0f3a' });
   score += e.pts * level; coins++; save();
   if (Math.random() < 0.15) pickups.push({ type: 'star', x: e.x + e.w / 2 - 10, y: e.y + e.h / 2 - 10, w: 20, h: 20 });
   // Every 10 kills: a new ally sub (max 2), then extra lives
   if (++kills % 10 === 0) {
-    if (allies < 2) { allies++; flash = { msg: 'NOUVEAU SOUS-MARIN ALLIE !', t: 120 }; }
-    else { lives++; flash = { msg: '+1 VIE !', t: 120 }; }
+    if (allies < 2) { allies++; flash = { msg: 'FRIENDLY SUB JOINING FORMATION', t: 120 }; }
+    else { lives++; flash = { msg: 'REINFORCEMENTS: +1 LIFE', t: 120 }; }
     sfx.win();
   }
 }
@@ -567,6 +721,7 @@ function updateWreck(p) {
 
 // ---------- Update ----------
 function update() {
+  if (state === 'pause') { laserSound(false); ciwsSound(false); return; } // frozen: nothing moves
   T++;
   for (const f of bgFish) { if (state === 'play' || state === 'title') f.x -= f.s; if (f.x < -60) { f.x = W + 60; f.y = rnd(110, H - 150); } }
   if (particles.length > 500) particles.splice(0, particles.length - 500); // safety cap
@@ -576,21 +731,22 @@ function update() {
   particles.forEach(p => {
     p.x += p.vx || 0; p.y += p.vy || 0; p.life--;
     if (p.kind === 'fire') { p.vx *= 0.92; p.vy *= 0.92; }
-    if (p.kind === 'bubble') p.vy -= 0.02;
+    if (p.kind === 'bubble') { p.vy -= 0.02; if (p.drag) { p.vx *= p.drag; p.vy *= p.drag; } }
     if (p.kind === 'drop') p.vy += 0.12;
     if (p.kind === 'spark') { p.vx *= 0.88; p.vy *= 0.88; }
     if (p.kind === 'debris') { p.vy += p.y < SURFACE ? 0.15 : 0.03; p.vx *= 0.97; p.rot += p.spin; }
     if (p.kind === 'wreck') updateWreck(p);
-    if (p.kind === 'freed' && p.e.type === 'beluga') { p.e.vx += (1.6 - p.e.vx) * 0.03; p.e.x += p.e.vx; p.e.y -= 0.25; p.e.vy = -1; p.e.face = 1; p.e.t += 0.03; }
-    if (p.kind === 'freed' && p.e.type === 'diver') { p.e.face = 1; p.e.t += 0.03; p.e.vy = p.e.y > SURFACE + 4 ? -1.5 : 0; p.e.y += p.e.vy * 0.5; p.e.x += 0.8; } // swims up and away
   });
   particles = particles.filter(p => p.life > 0);
   if (state === 'title') { camX += 0.4; return; }
-  if (state === 'next' && --nextTimer <= 0) { level++; startLevel(); state = 'play'; }
+  if (state === 'next' && --nextTimer <= 0) { level++; startLevel(); state = 'brief'; briefT = BRIEF_TIME; tone(880, 0.15, 'sine', 0.06); setTimeout(() => tone(1320, 0.2, 'sine', 0.06), 160); }
+  if (state === 'brief' && --briefT <= 0) state = 'play';
   if (state !== 'play') { laserSound(false); ciwsSound(false); return; }
 
   camX += scroll; dist += scroll;
   if (flash && --flash.t <= 0) flash = null;
+  if (flash) { dashMsg = flash.msg; dashRed = !!flash.danger; }
+  dashA += ((flash ? 1 : 0) - dashA) * 0.12; // dashboard message fades / slides in and out
 
   // Player: free swimming in 4 directions
   const sp = ship().speed * 0.5;
@@ -605,7 +761,7 @@ function update() {
   const k0 = player.ciws;
   player.ciws = up ? Math.min(1, k0 + 1 / 40) : Math.max(0, k0 - 1 / 25);
   if (k0 === 0 && player.ciws > 0) sfx.raise(player.x + 80);
-  if (k0 < 1 && player.ciws === 1 && !flash) flash = { msg: 'CANON ANTI-AERIEN PRET !', t: 70 };
+  if (k0 < 1 && player.ciws === 1 && !flash) flash = { msg: 'CIWS ONLINE', t: 70 };
   if (up && T % 3 === 0) particles.push({ kind: 'drop', x: player.x + 92 + rnd(-4, 4), y: SURFACE - 1, vx: rnd(0.2, 1.2), vy: rnd(-1.6, -0.5), life: 20, max: 20, size: rnd(1, 2) }); // bow wave
   if (tx || ty) { // propeller wash: bubbles behind the stern while the player drives the sub
     const a = player.vy * 0.1, c = Math.cos(a), sn = Math.sin(a);
@@ -617,7 +773,7 @@ function update() {
   if (player.double > 0) player.double--;
   if (player.jam > 0) {
     if (T % 20 === 0) particles.push({ kind: 'spark', x: player.x + rnd(10, 86), y: player.y + rnd(14, 34), vx: rnd(-1, 1), vy: rnd(-1, 1), life: 12, max: 12, size: 1.5, color: '#9ff' });
-    if (--player.jam === 0) { sfx.power(); flash = { msg: 'ARMES OK !', t: 60 }; }
+    if (--player.jam === 0) { sfx.power(); flash = { msg: 'WEAPONS ONLINE', t: 60 }; }
   }
 
   // Decoys: thrown up/down, slow down, drift back with the current, ping
@@ -630,6 +786,7 @@ function update() {
   decoys = decoys.filter(d => d.life > 0 && d.x > -20);
 
   if (decoyCool > 0 && --decoyCool === 0) tone(1400, 0.08, 'sine', 0.05); // ready again
+  if (bubbleCool > 0) bubbleCool--;
   // Shoot slow torpedoes that speed up
   // CIWS (surfaced, hold SPACE): radar-aimed gatling, turns to the nearest helicopter or drone
   let firing = false;
@@ -638,13 +795,17 @@ function update() {
     const a = player.vy * 0.1, c = Math.cos(a), sn = Math.sin(a);
     const px = player.x + 46 + 34.6 * c + 4.6 * sn, py = player.y + 24 + 34.6 * sn - 4.6 * c; // gun pivot, mount raised
     let bd = CIWS_RANGE;
-    for (const e of enemies) if ((e.type === 'heli' || e.type === 'drone') && !e.dead && e.y + e.h / 2 < py) {
+    for (const m of eShots) if ((m.type === 'asm' && !m.boost || m.type === 'sam' && m.y < SURFACE - 4) && !m.dead) { // missiles first (also the one hunting our H-bomb)
+      const d = Math.hypot(m.x + m.w / 2 - px, m.y + m.h / 2 - py);
+      if (d < bd) { bd = d; player.ciwsT = m; }
+    }
+    if (!player.ciwsT) for (const e of enemies) if ((e.type === 'heli' || e.type === 'drone') && !e.dead && e.y + e.h / 2 < py) {
       const d = Math.hypot(e.x + e.w / 2 - px, e.y + e.h / 2 - py);
       if (d < bd) { bd = d; player.ciwsT = e; }
     }
     const tg = player.ciwsT, want = tg ? Math.atan2(tg.y + tg.h / 2 - py, tg.x + tg.w / 2 - px) : -0.9;
     let diff = want - player.ciwsA; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-    player.ciwsA = Math.max(-Math.PI + 0.1, Math.min(-0.1, player.ciwsA + Math.max(-0.1, Math.min(0.1, diff)))); // upper half only
+    player.ciwsA = Math.max(-Math.PI + 0.03, Math.min(-0.03, player.ciwsA + Math.max(-0.12, Math.min(0.12, diff)))); // upper half only
     if (keys.Space && !player.jam && player.ciws === 1) {
       firing = true;
       if (T % 2 === 0) {
@@ -696,6 +857,15 @@ function update() {
   }
   laserSound(!!laser);
   torps.forEach(t => {
+    if (t.lure) { // fooled by an enemy sub's decoy: turns onto it and blows up there
+      const d = t.lure, lx = d.x + 3, ly = d.y + 3, hx = t.x + t.w, hy = t.y + t.h / 2;
+      if (d.dead) t.lure = false;
+      else {
+        let diff = Math.atan2(ly - hy, lx - hx) - t.a; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        t.a += Math.max(-0.07, Math.min(0.07, diff));
+        if (Math.hypot(lx - hx, ly - hy) < 8) { t.dead = d.dead = true; boom(lx, ly, false); return; }
+      }
+    }
     t.vx = Math.min(2.5, t.vx + 0.035); t.x += t.vx * Math.cos(t.a); t.y += t.vx * Math.sin(t.a); // vx = speed along its heading
     const cy = t.y + t.h / 2;
     if (cy < SURFACE + 2) { t.dead = true; for (let i = 0; i < 8; i++) particles.push({ kind: 'drop', x: t.x + t.w, y: SURFACE, vx: rnd(-1, 1.5), vy: rnd(-2.5, -0.8), life: 35, max: 35, size: rnd(1.5, 2.5) }); }
@@ -703,7 +873,7 @@ function update() {
     if (Math.random() < 0.4) particles.push({ kind: 'bubble', x: t.x, y: t.y + 2, vx: -0.5, vy: rnd(-0.6, -0.1), life: 30, max: 30, size: rnd(1, 2.2) });
   });
   torps = torps.filter(t => t.x < W + 20 && !t.dead);
-  // CIWS rounds: fast tracers, they only hurt aircraft and shells still in the air
+  // CIWS rounds: fast tracers, they only hurt aircraft and enemy missiles
   for (const b of bullets) {
     for (let k = 0; k < 2 && !b.dead; k++) { // 2 sub-steps so they don't skip small targets
       b.x += b.vx / 2; b.y += b.vy / 2;
@@ -716,8 +886,14 @@ function update() {
         if (e.holes >= CIWS_HITS) { e.holes = 0; e.hp--; e.flash = 6; addMark(e, b.x); impact(b.x, b.y, e); if (e.hp <= 0) killEnemy(e); }
         break;
       }
-      const s = eShots.find(s => s.type === 'shell' && !s.wet && !s.dead && Math.abs(s.x + 3 - b.x) < 6 && Math.abs(s.y + 1.5 - b.y) < 6);
-      if (s) { s.dead = b.dead = true; boom(s.x, s.y, false); score += 5; }
+      const m = eShots.find(m => m.type === 'asm' && !m.dead && Math.abs(m.x + m.w / 2 - b.x) < 7 && Math.abs(m.y + m.h / 2 - b.y) < 5);
+      if (m) {
+        b.dead = true; particles.push({ kind: 'spark', x: b.x, y: b.y, vx: rnd(-2, 2), vy: rnd(-2, 1), life: 10, max: 10, size: 1 });
+        if (++m.holes >= ASM_HITS) { m.dead = true; boom(m.x + m.w / 2, m.y + m.h / 2); shake = Math.max(shake, 5); score += 20; flash = { msg: 'MISSILE SPLASHED', t: 50 }; }
+        break;
+      }
+      const s = eShots.find(s => s.type === 'sam' && !s.dead && Math.abs(s.x + s.w / 2 - b.x) < 6 && Math.abs(s.y + s.h / 2 - b.y) < 5);
+      if (s) { s.dead = b.dead = true; boom(s.x + s.w / 2, s.y + s.h / 2, false); score += 10; }
     }
     b.vy += 0.02; if (--b.life <= 0) b.dead = true;
   }
@@ -726,6 +902,7 @@ function update() {
   // Spawning (stops near the end of the level)
   if (dist < levelLen - 700) {
     if (belugaLeft > 0 && dist >= nextBeluga) { spawnBeluga(); belugaLeft--; nextBeluga += belugaGap; }
+    if (heartsLeft > 0 && dist >= nextHeart) { heartsLeft--; nextHeart += levelLen * 0.35; pickups.push({ type: 'life', x: W + 20, y: rnd(SURFACE + 60, H - 130), w: 18, h: 16 }); }
     if (--spawnTimer <= 0) { spawnEnemy(); const base = Math.max(140, 340 - level * 30); spawnTimer = rnd(base * 0.7, base * 1.3); }
     if (--airTimer <= 0) { spawnAir(); airTimer = Math.max(450, 1000 - level * 90) * rnd(0.8, 1.2); }
     if (--coinTimer <= 0) {
@@ -743,6 +920,13 @@ function update() {
     if (e.kick) { // pushed down by the torpedo hit
       const d = e.kick; e.kick = e.kick > 0.05 ? e.kick * 0.88 : 0;
       if (e.type === 'octo') e.baseY += d; else if (e.type === 'boat') e.sink = Math.min(12, (e.sink || 0) + d); else e.y += d;
+    }
+    if (e.blow) { // pushed away by the bubble screen; small ones tumble, then are washed out
+      e.x += e.bx; e.bx *= 0.9; e.by *= 0.9;
+      if (e.type === 'octo') e.baseY += e.by; else e.y = Math.max(SURFACE + 6, Math.min(groundY(camX + e.x + e.w / 2) - e.h - 2, e.y + e.by));
+      if (T % 3 === 0) particles.push({ kind: 'bubble', x: e.x + rnd(0, e.w), y: e.y + rnd(0, e.h), vx: 0, vy: -0.8, life: 30, max: 30, size: rnd(1, 2.5) });
+      if (--e.blow <= 0) { e.blow = 0; if (e.small) { killEnemy(e, true); continue; } }
+      if (e.small) { if (e.type === 'octo') e.y = e.baseY + Math.sin(e.t * 1.5) * 25; continue; } // no AI, no fuse, no contact while tumbling
     }
     if (e.marks && T % Math.max(3, 10 - e.marks.length * 2) === 0) { // damaged: leaks smoke / bubbles / flames
       const m = e.marks[Math.floor(Math.random() * e.marks.length)], mx = e.x + m.dx, my = e.y + m.dy;
@@ -802,6 +986,21 @@ function update() {
       e.baseY += Math.sign(player.y - e.baseY) * 0.12;
       e.y = e.baseY + Math.sin(e.t * 1.5) * 25;
     }
+    if (e.type === 'sub' && level >= SUB_CM_LEVEL) { // countermeasure: a noisy decoy that pulls our torpedo / H-bomb away (50%, rolled once each)
+      if (e.cmT > 0) e.cmT--;
+      let threat = null;
+      for (const t of torps) {
+        const gap = e.x - t.x - t.w, ty = t.y + t.h / 2 + Math.tan(t.a) * Math.max(0, gap);
+        if (!t.dead && !t.lure && gap > -10 && gap < SUB_CM_RANGE && ty > e.y - 10 && ty < e.y + e.h + 10 && (t.cm ??= Math.random() < SUB_CM_SAVE)) { threat = t; break; }
+      }
+      if (!threat) for (const m of missiles) if (!m.dead && !m.lure && m.target === e && m.y + 7 > SURFACE && Math.hypot(m.x - e.x - 54, m.y - e.y - 20) < SUB_CM_RANGE && (m.cm ??= Math.random() < SUB_CM_SAVE)) { threat = m; break; }
+      if (threat && !(e.cmT > 0) && e.x < W - 20) {
+        const up = e.y - SURFACE > 60 ? -1 : 1, d = { type: 'cm', x: e.x + 40, y: e.y + 16, w: 6, h: 6, vx: -0.6, vy: up * 2.6, life: 300 };
+        eShots.push(d); threat.lure = d; e.cmT = 20;
+        noise(0.12, 0.05); tone(2400, 0.1, 'sine', 0.06); setTimeout(() => tone(2400, 0.1, 'sine', 0.06), 110);
+        if (!flash) flash = { msg: 'ENEMY DECOY DEPLOYED', t: 50 };
+      }
+    }
     if (e.type === 'sub' && e.x < W - 30 && --e.fire <= 0) {
       const sx = e.x - 2, sy = e.y + 26, v = 1.8 + level * 0.2; // aimed at where the player is now
       const a = Math.max(-1.2, Math.min(1.2, Math.atan2(player.y + 24 - sy, sx - player.x - 46))); // up to ~70 deg from horizontal
@@ -820,39 +1019,77 @@ function update() {
       continue;
     }
     if (e.type === 'heli' || e.type === 'drone') {
-      if (e.type === 'heli') e.y += Math.sin(T * 0.03) * 0.15; else e.y = 26 + Math.sin(e.t * 2) * 12;
-      if (e.type === 'heli' && e.x < W - 120 && e.x > 150 && (e.diverT ??= Math.random() < 0.35 ? rnd(60, 200) : Infinity, --e.diverT <= 0)) { // a swimmer jumps out
+      if (e.type === 'heli') e.y += Math.sin(T * 0.03) * 0.15;
+      else if (e.climb > 0) { e.climb--; e.y += (26 + Math.sin(e.t * 2) * 12 - e.y) * 0.08; } // just launched by a Rampart
+      else e.y = 26 + Math.sin(e.t * 2) * 12;
+      if (e.type === 'heli' && e.x < W - 120 && e.x > 150 && (e.diverT ??= level >= UNLOCK.swimmers && Math.random() < 0.35 ? rnd(60, 200) : Infinity, --e.diverT <= 0)) { // a swimmer jumps out
         e.diverT = Infinity; spawnDiver(e.x + e.w / 2 - 22, e.y + e.h, -0.3, 0);
       }
       if (e.type === 'heli' && e.x < W - 40 && e.x > 0 && --e.fire <= 0) { // drops a bomb into the sea
         eShots.push({ type: 'charge', x: e.x + e.w / 2 - 5, y: e.y + e.h, w: 10, h: 14, vy: 0.3 + level * 0.04 });
         e.fire = Math.max(200, 380 - level * 25) * rnd(0.8, 1.2);
       }
-      if (e.type === 'drone') droneLaser(e);
+      if (e.type === 'drone' && !e.climb) droneLaser(e);
     }
     if (e.type === 'boat') {
       if (T % 8 === 0) particles.push({ kind: 'smoke', x: e.x + 61, y: e.y, vx: 0.3, vy: -0.6, life: 50, max: 50, size: 4 });
       e.y = SURFACE - 24 + Math.sin(T * 0.03) * 2 + (e.sink || 0);
-      if (e.x < W - 120 && e.x > 150 && (e.diverT ??= Math.random() < 0.35 ? rnd(60, 200) : Infinity, --e.diverT <= 0)) { // a swimmer jumps off the deck
+      if (e.x < W - 120 && e.x > 150 && (e.diverT ??= level >= UNLOCK.swimmers && Math.random() < 0.35 ? rnd(60, 200) : Infinity, --e.diverT <= 0)) { // a swimmer jumps off the deck
         e.diverT = Infinity; spawnDiver(e.x + 10, e.y + 6, 0.9, -2.2);
       }
       if (e.x < W - 40 && e.x > 0 && --e.fire <= 0) {
         eShots.push({ type: 'charge', x: e.x + 45, y: SURFACE, w: 10, h: 14, vy: 0.3 + level * 0.04 });
         e.fire = Math.max(140, 300 - level * 24) * rnd(0.8, 1.2);
       }
-      const px = player.x + 46, py = player.y + 24, ca = Math.cos(e.gunA), sa = Math.sin(e.gunA);
-      const mx = e.x + 14 - ca * 10, my = e.y + 13 + sa * 10; // muzzle
-      const want = Math.max(0.15, Math.min(1.2, Math.atan2(py - my, mx - px)));
-      if (e.gun > 0) e.gun--;
-      if (px < e.x - 10) { // the gun only covers the bow side
-        e.gunA += Math.max(-0.03, Math.min(0.03, want - e.gunA));
-        if (e.gun <= 0 && e.x > 30 && e.x < W - 40 && Math.abs(want - e.gunA) < 0.05) {
-          eShots.push({ type: 'shell', x: mx - 3, y: my - 1.5, w: 6, h: 3, vx: -ca * 4, vy: sa * 4, life: 360 });
-          particles.push({ kind: 'flash', x: mx, y: my, life: 8, max: 8, size: 5 });
-          particles.push({ kind: 'smoke', x: mx, y: my, vx: -0.3, vy: -0.4, life: 30, max: 30, size: 3 });
-          sfx.gun(mx); e.gun = Math.max(200, 315 - level * 15) * rnd(0.8, 1.2);
+      // Rampart (Naval Group): a turret with 4 modules on the bow. Air/air missiles at our H-bomb in the sky,
+      // air/sea missiles at the surfaced sub, and drones. It turns to the job, then fires when it is aligned
+      const rx = e.x + 14, ry = e.y + 11, onScreen = e.x > 30 && e.x < W - 40;
+      if (!player.up) e.asm = Math.max(e.asm ?? 90, 60); else if (e.asm > 0 || e.asm == null) e.asm = (e.asm ?? 90) - 1; // air/sea only at a surfaced sub
+      e.droneT = (e.droneT ?? rnd(120, 240)) - 1; if (e.samT > 0) e.samT--;
+      const bomb = missiles.find(m => !m.dead && !m.samBy && m.y + 7 < SURFACE + 160 && Math.hypot(m.x + 2.5 - rx, m.y + 7 - ry) < RAMPART_AA); // heard by sonar while it rises
+      const upA = a => a > 0 ? (a > Math.PI / 2 ? -Math.PI : 0) : a; // a target below the deck: aim level
+      if (e.atrT > 0) e.atrT--;
+      let threat = null; // our torpedo or H-bomb coming at the ship under water: 50% chance it reacts (rolled once each)
+      for (const t of torps) {
+        const gap = e.x - t.x - t.w, ty = t.y + t.h / 2 + Math.tan(t.a) * Math.max(0, gap);
+        if (!t.dead && gap > -20 && gap < RAMPART_ASW && ty > e.y && ty < e.y + e.h + 16 && (t.atr ??= Math.random() < RAMPART_SAVE) === true) { threat = t; break; }
+      }
+      if (!threat) for (const m of missiles) if (!m.dead && m.target === e && m.y + 7 > SURFACE + 4 && Math.hypot(m.x - rx, m.y - ry) < RAMPART_ASW && (m.atr ??= Math.random() < RAMPART_SAVE) === true) { threat = m; break; }
+      let want, job = null;
+      if (threat && !(e.atrT > 0)) { want = upA(Math.atan2(threat.y - ry, threat.x - rx)); want += want < -Math.PI / 2 ? 0.5 : -0.5; job = 'atr'; } // lofted over the water
+      else if (bomb && !(e.samT > 0)) { want = upA(Math.atan2(Math.min(bomb.y + 7, SURFACE - 30) - ry, bomb.x + 2.5 - rx)); job = 'sam'; }
+      else if (player.up && e.asm <= 20) { want = upA(Math.atan2(player.y + 10 - ry, player.x + 60 - rx)); want += want < -Math.PI / 2 ? 0.6 : -0.6; job = 'asm'; } // lofted
+      else if (e.droneT <= 20 && enemies.filter(d => d.type === 'drone').length < 2) { want = -Math.PI / 2 - 0.25; job = 'drone'; }
+      else want = upA(Math.atan2(player.y + 24 - ry, player.x + 46 - rx)); // tracks the sub
+      want = Math.max(-Math.PI + 0.12, Math.min(-0.12, want)); // upper half only
+      let diff = want - e.rpA; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+      e.rpA += Math.max(-0.1, Math.min(0.1, diff));
+      const ca = Math.cos(e.rpA), sa = Math.sin(e.rpA), mx = rx + ca * 7, my = ry + sa * 7; // module mouths
+      if (job && onScreen && Math.abs(diff) < 0.12) {
+        if (job === 'atr') { // anti-torpedo rocket: dives into the sea and blows up on our weapon
+          threat.atr = 'fired'; e.atrT = 20;
+          eShots.push({ type: 'atr', x: mx - 3, y: my - 1.5, w: 6, h: 3, a: e.rpA, v: 3, target: threat, life: 160 });
+          sfx.sam(mx); flash = { msg: 'ENEMY COUNTERMEASURE', t: 40 };
+        } else if (job === 'sam' && bomb) {
+          bomb.samBy = true; e.samT = 40;
+          eShots.push({ type: 'sam', x: mx - 4, y: my - 1.5, w: 8, h: 3, a: e.rpA, v: 2.5, target: bomb, life: 240 });
+          sfx.sam(mx); flash = { msg: 'SAM LAUNCH - H-BOMB TARGETED', t: 50, danger: true };
+        } else if (job === 'asm' && e.asm <= 0) {
+          eShots.push({ type: 'asm', x: mx - 7, y: my - 2, w: 14, h: 4, a: e.rpA, v: 1.6, boost: 12, holes: 0, warned: true }); // the VAMPIRE call already warned
+          sfx.ignite(mx); [0, 220, 440].forEach(d => setTimeout(() => tone(1250, 0.12, 'square', 0.05, 950), d)); // launch roar + alarm
+          if (!(flash && flash.danger)) flash = { msg: 'VAMPIRE! INCOMING MISSILE', t: 60, danger: true };
+          e.asm = Math.max(150, 270 - level * 15) * rnd(0.8, 1.2);
+        } else if (job === 'drone' && e.droneT <= 0) {
+          enemies.push({ type: 'drone', x: mx - 12, y: my - 7, w: 32, h: 14, hp: 1, pts: 40, fire: 160, vx: 0.4, t: 0, climb: 70 });
+          sfx.droneOut(mx); e.droneT = Math.max(420, 720 - level * 30) * rnd(0.8, 1.2);
+        } else job = null;
+        if (job) {
+          e.rpKick = 6;
+          particles.push({ kind: 'flash', x: mx, y: my, life: 8, max: 8, size: 4 });
+          for (let i = 0; i < 5; i++) particles.push({ kind: 'smoke', x: mx + rnd(-3, 3), y: my + rnd(-3, 3), vx: rnd(-0.5, 0.5), vy: rnd(-0.6, 0), life: 45, max: 45, size: rnd(2.5, 4.5), color: '#d9dde0' });
         }
       }
+      if (e.rpKick > 0) e.rpKick--;
       if (!e.heliDone) { // a helicopter waits on the flight deck
         e.heliDone = true;
         if (!enemies.some(h => h.type === 'heli')) enemies.push({ type: 'heli', x: e.x + 76, y: e.y - 9, w: 62, h: 26, hp: 1, pts: 60, fire: 160, vx: 0, parked: e, takeoff: rnd(60, 180) });
@@ -894,16 +1131,67 @@ function update() {
       if (s.y < SURFACE) { s.dead = true; for (let i = 0; i < 4; i++) particles.push({ kind: 'drop', x: s.x, y: SURFACE, vx: rnd(-1, 1), vy: rnd(-2.5, -1), life: 30, max: 30, size: rnd(1, 2) }); }
       else if (s.y + s.h > groundY(camX + s.x)) { s.dead = true; boom(s.x, s.y, false); }
     }
-    else if (s.type === 'shell') { // ballistic in the air, slowed down by the water
-      s.x += s.vx; s.y += s.vy;
-      if (!s.wet && s.y > SURFACE) {
-        s.wet = true; s.vx *= 0.5; s.vy *= 0.5; noise(0.12, 0.06);
-        for (let i = 0; i < 5; i++) particles.push({ kind: 'drop', x: s.x, y: SURFACE, vx: rnd(-1, 1), vy: rnd(-2.5, -1), life: 30, max: 30, size: rnd(1, 2) });
+    else if (s.type === 'asm') { // pops up out of its canister, then turns and dives onto the sub's sail
+      if (s.boost > 0) s.boost--;
+      else {
+        const cx = s.x + s.w / 2, cy = s.y + s.h / 2;
+        const want = player.up ? Math.atan2(player.y + 16 - cy, player.x + 60 - cx) : 2.4; // sub dived: lost lock, falls into the sea
+        let diff = want - s.a; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        s.a += Math.max(-0.1, Math.min(0.1, diff)); s.v = Math.min(3.4, s.v + 0.05);
       }
-      if (s.wet) { s.vx *= 0.995; s.vy = s.vy * 0.995 + 0.01; if (T % 4 === 0) particles.push({ kind: 'bubble', x: s.x + 3, y: s.y + 1, vx: 0, vy: -0.4, life: 30, max: 30, size: 1 }); }
-      else s.vy += 0.05;
-      if (s.y + s.h > groundY(camX + s.x)) { s.dead = true; boom(s.x, s.y, false); }
-      else if (--s.life <= 0) s.dead = true;
+      s.vx = Math.cos(s.a) * s.v; s.vy = Math.sin(s.a) * s.v; s.x += s.vx; s.y += s.vy;
+      const tx = s.x + s.w / 2 - Math.cos(s.a) * 8, ty = s.y + s.h / 2 - Math.sin(s.a) * 8; // motor exhaust
+      particles.push({ kind: 'fire', x: tx, y: ty, vx: -s.vx * 0.3, vy: -s.vy * 0.3, life: 8, max: 8, size: rnd(1.5, 3), color: T % 2 ? '#ffd23f' : '#ff8c1a' });
+      if (T % 2 === 0) particles.push({ kind: 'smoke', x: tx, y: ty, vx: rnd(-0.2, 0.2), vy: -0.2, life: 40, max: 40, size: 2.5, color: '#cfd4d8' });
+      if (!s.boost && s.y + s.h > SURFACE + 2) { // into the sea
+        s.dead = true; boom(s.x + s.w / 2, SURFACE, false);
+        for (let i = 0; i < 12; i++) particles.push({ kind: 'drop', x: s.x + s.w / 2, y: SURFACE, vx: rnd(-1.5, 1.5), vy: rnd(-3.5, -1), life: 40, max: 40, size: rnd(1.5, 2.5) });
+      }
+      if (s.y < -40) s.dead = true;
+    }
+    else if (s.type === 'cm') { // enemy sub decoy: thrown out, slows down, drifts and pings
+      s.x += s.vx - scroll * 0.3; s.y += s.vy; s.vx *= 0.97; s.vy *= 0.95;
+      s.y = Math.max(SURFACE + 6, Math.min(groundY(camX + s.x) - 8, s.y));
+      if (--s.life <= 0) s.dead = true;
+      if (s.life % 30 === 0) particles.push({ kind: 'ring', x: s.x + 3, y: s.y + 3, life: 20, max: 20, r: 24 });
+      if (T % 6 === 0) particles.push({ kind: 'bubble', x: s.x + 3, y: s.y, vx: 0, vy: -0.5, life: 30, max: 30, size: rnd(0.8, 1.6) });
+    }
+    else if (s.type === 'atr') { // Rampart anti-torpedo rocket: arcs over, dives in, homes on our torpedo / H-bomb
+      const tg = s.target, cx = s.x + s.w / 2, cy = s.y + s.h / 2, wet = cy > SURFACE;
+      if (tg && !tg.dead) {
+        const gx = tg.x + (tg.w || 5) / 2, gy = tg.y + (tg.h || 14) / 2;
+        let diff = Math.atan2(gy - cy, gx - cx) - s.a; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        s.a += Math.max(-0.16, Math.min(0.16, diff));
+        if (Math.hypot(gx - cx, gy - cy) < 10) { // got it
+          s.dead = tg.dead = true; boom(cx, cy, false); shake = Math.max(shake, 4);
+          particles.push({ kind: 'ring', x: cx, y: cy, life: 16, max: 16, r: 26 });
+          flash = { msg: tg.h === 14 ? 'H-BOMB INTERCEPTED' : 'TORPEDO INTERCEPTED', t: 60 };
+        }
+      } else s.a += (Math.PI / 2 - s.a) * 0.05; // target gone: sinks
+      s.v = wet ? Math.min(3.4, s.v + 0.1) : Math.min(5, s.v + 0.15);
+      s.vx = Math.cos(s.a) * s.v; s.vy = Math.sin(s.a) * s.v; s.x += s.vx; s.y += s.vy;
+      if (!s.wet && wet) { s.wet = true; noise(0.15, 0.06); for (let i = 0; i < 6; i++) particles.push({ kind: 'drop', x: cx, y: SURFACE, vx: rnd(-1, 1), vy: rnd(-2.5, -1), life: 30, max: 30, size: rnd(1, 2) }); }
+      if (wet) particles.push({ kind: 'bubble', x: cx, y: cy, vx: 0, vy: -0.4, life: 30, max: 30, size: rnd(0.8, 1.8) });
+      else particles.push({ kind: 'fire', x: cx - Math.cos(s.a) * 4, y: cy - Math.sin(s.a) * 4, vx: -s.vx * 0.2, vy: -s.vy * 0.2, life: 6, max: 6, size: rnd(1, 2), color: '#ffd23f' });
+      if (--s.life <= 0 || cy > groundY(camX + cx)) { s.dead = true; if (s.wet) boom(cx, cy, false); }
+    }
+    else if (s.type === 'sam') { // Rampart air/air missile: waits above our H-bomb, strikes when it leaves the water
+      const tg = s.target, cx = s.x + s.w / 2, cy = s.y + s.h / 2;
+      if (tg && !tg.dead) {
+        const air = tg.y + 7 < SURFACE, gy = air ? tg.y + 7 : SURFACE - 28; // still under water: hold over it
+        const gd = Math.hypot(tg.x + 2.5 - cx, gy - cy);
+        let diff = Math.atan2(gy - cy, tg.x + 2.5 - cx) - s.a; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        s.a += Math.max(-0.2, Math.min(0.2, diff));
+        s.vmax = air || gd > 90 ? 6 : 1.6; // loiters slowly above the bomb
+        if (Math.hypot(tg.x + 2.5 - cx, tg.y + 7 - cy) < 8) { // intercepted: the bomb blows up harmlessly in the sky
+          s.dead = tg.dead = true; boom(cx, cy); shake = Math.max(shake, 6); flash = { msg: 'H-BOMB INTERCEPTED', t: 70 };
+        }
+      }
+      s.v = s.v < (s.vmax ?? 6) ? s.v + 0.2 : Math.max(s.vmax ?? 6, s.v - 0.25); s.vx = Math.cos(s.a) * s.v; s.vy = Math.sin(s.a) * s.v; s.x += s.vx; s.y += s.vy;
+      particles.push({ kind: 'fire', x: cx - Math.cos(s.a) * 5, y: cy - Math.sin(s.a) * 5, vx: -s.vx * 0.2, vy: -s.vy * 0.2, life: 6, max: 6, size: rnd(1, 2), color: '#ffd23f' });
+      if (T % 2 === 0) particles.push({ kind: 'smoke', x: cx - Math.cos(s.a) * 6, y: cy - Math.sin(s.a) * 6, vx: 0, vy: -0.1, life: 35, max: 35, size: 1.8, color: '#e6e9ec' });
+      if (cy > SURFACE) { s.dead = true; for (let i = 0; i < 5; i++) particles.push({ kind: 'drop', x: cx, y: SURFACE, vx: rnd(-1, 1), vy: rnd(-2.5, -1), life: 30, max: 30, size: rnd(1, 2) }); }
+      if (--s.life <= 0 || s.y < -30) s.dead = true;
     }
     else {
       const d = s.y > SURFACE && decoyNear(s.x + 5, s.y + 7);
@@ -912,14 +1200,87 @@ function update() {
     }
     if (s.type === 'charge' && s.y + s.h > groundY(camX + s.x)) { s.dead = true; boom(s.x + 5, s.y + 7, false); }
     if (s.type === 'charge' && !s.dead && s.y > SURFACE && proximityFuse(s, s.x + 5, s.y + 7)) continue;
+    if (s.type === 'sam' || s.type === 'atr' || s.type === 'cm') continue; // they only go after our weapons
     if (!s.dead && hit(s, playerBox())) { s.dead = true; damagePlayer(); }
     for (let i = allies - 1; i >= 0; i--) if (!s.dead && hit(s, allyBox(i))) { s.dead = true; allies--; boom(allyBox(i).x + 28, allyBox(i).y + 12); }
     for (const t of torps) if (!s.dead && !t.dead && hit(s, t)) { s.dead = t.dead = true; boom(s.x, s.y, false); score += 5; }
   }
   eShots = eShots.filter(s => !s.dead && s.x > -30 && s.x < W + 30 && s.y < H);
 
-  // H-bomb: rises slowly underwater, then rockets into the sky
+  // Threat warning: the closest missile, torpedo, beluga, swimmer or drone aimed at the sub. Beeps faster as it closes in
+  const px = player.x + 46, py = player.y + 24;
+  let th = Infinity, thO = null;
+  const near = (o, d) => { if (d < th) { th = d; thO = o; } };
+  for (const s of eShots) {
+    if (s.type === 'asm' && !s.boost && player.up) near(s, Math.hypot(s.x + s.w / 2 - px, s.y + s.h / 2 - py));
+    if (s.type === 'torp') { // only if its course passes close to the sub
+      const rx = px - s.x - s.w / 2, ry = py - s.y - s.h / 2, v = Math.hypot(s.vx, s.vy) || 1, along = (rx * s.vx + ry * s.vy) / v;
+      if (along > 0 && Math.abs(rx * s.vy - ry * s.vx) / v < 40) near(s, Math.hypot(rx, ry));
+    }
+  }
+  for (const e of enemies) {
+    if (e.dead || e.x > W) continue;
+    const homing = (e.type === 'beluga' || e.type === 'diver') && e.bomb && !e.air && !e.blow && e.life > 0 && !decoyNear(e.x + e.w / 2, e.y + e.h / 2); // hunting the sub, not a decoy
+    const drone = e.type === 'drone' && (e.aim > 0 || e.beam > 0 || player.y < SURFACE + 70); // its laser can reach us
+    if (homing || drone) near(e, Math.hypot(e.x + e.w / 2 - px, e.y + e.h / 2 - py));
+  }
+  player.threat = th < WARN_RANGE ? th : Infinity;
+  if (thO && th < WARN_RANGE && !thO.warned) { // a new threat has us locked: danger message, once per threat
+    thO.warned = true;
+    const what = { asm: 'MISSILE', torp: 'TORPEDO', beluga: 'KAMIKAZE WHALE', diver: 'COMBAT SWIMMER', drone: 'DRONE' }[thO.type];
+    if (what && !(flash && flash.danger && flash.t > 30)) flash = { msg: 'LOCKED TARGET - ' + what + ' INBOUND', t: 70, danger: true };
+  }
+  if (player.threat === Infinity) player.beepT = 0;
+  else if (--player.beepT <= 0) {
+    const red = player.threat < WARN_RED;
+    tone(red ? 1900 : 1500, 0.05, 'square', red ? 0.05 : 0.035);
+    player.beepT = 6 + Math.round(48 * player.threat / WARN_RANGE); // from 0.9 s far away to 0.1 s when close
+  }
+
+  // Target lock: always the closest enemy sub or ship on screen (orange box). The H-bomb homes on it
+  player.lock = null;
+  let ld = Infinity;
+  for (const e of enemies) if ((e.type === 'sub' || e.type === 'boat') && !e.dead && e.x + e.w > 0 && e.x < W) {
+    const d = Math.hypot(e.x + e.w / 2 - player.x - 46, e.y + e.h / 2 - player.y - 24);
+    if (d < ld) { ld = d; player.lock = e; }
+  }
+  if (player.lock !== player.lockOld) { if (player.lock) tone(2600, 0.04, 'sine', 0.04); player.lockOld = player.lock; } // lock-on chirp
+
+  // Guided H-bomb: ejected upward, then the motor lights and it turns onto its target, under or over the water
   for (const m of missiles) {
+    if (!m.guided) continue;
+    if (!m.target || m.target.dead) m.target = player.lock; // target gone: take the next lock (or fly straight)
+    m.t++;
+    const cx = m.x + 2.5, cy = m.y + 7, wasUnder = cy > SURFACE;
+    if (m.lure && m.lure.dead) m.lure = false;
+    if (m.t > 20) {
+      const tg = m.lure || m.target; // an enemy sub's decoy pulls it away
+      if (tg) {
+        let diff = Math.atan2(tg.y + tg.h / 2 - cy, tg.x + tg.w / 2 - cx) - m.a; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        m.a += Math.max(-0.08, Math.min(0.08, diff));
+      }
+      m.v = Math.min(wasUnder ? 2.8 : 4, m.v + 0.08);
+      if (m.t === 21) sfx.motor(cx, wasUnder); // motor lights
+    }
+    m.x += Math.cos(m.a) * m.v; m.y += Math.sin(m.a) * m.v;
+    const nx = m.x + 2.5, ny = m.y + 7, under = ny > SURFACE, bx = nx - Math.cos(m.a) * 9, by = ny - Math.sin(m.a) * 9;
+    if (under !== wasUnder) { // crossing the surface: splash
+      if (!under) sfx.ignite(nx); else noise(0.2, 0.1);
+      for (let i = 0; i < 14; i++) particles.push({ kind: 'drop', x: nx + rnd(-6, 6), y: SURFACE, vx: rnd(-1.5, 1.5), vy: rnd(-3.5, -1), life: 45, max: 45, size: rnd(1.5, 3) });
+    }
+    if (under) particles.push({ kind: 'bubble', x: bx + rnd(-2, 2), y: by + rnd(-2, 2), vx: rnd(-0.3, 0.3), vy: rnd(-0.6, 0), life: 40, max: 40, size: rnd(1, 2.5) });
+    else if (m.t > 20) {
+      particles.push({ kind: 'fire', x: bx, y: by, vx: -Math.cos(m.a), vy: -Math.sin(m.a), life: 12, max: 12, size: rnd(2, 4), color: '#ffb347' });
+      particles.push({ kind: 'smoke', x: bx, y: by, vx: rnd(-0.2, 0.2), vy: 0.2, life: 50, max: 50, size: rnd(2, 4) });
+    }
+    const struck = enemies.find(e => !e.dead && (e.type === 'sub' || e.type === 'boat') && nx > e.x - 3 && nx < e.x + e.w + 3 && ny > e.y - 3 && ny < e.y + e.h + 3);
+    if (m.lure && Math.hypot(m.lure.x + 3 - nx, m.lure.y + 3 - ny) < 10) { m.dead = m.lure.dead = true; megaBoom(nx, ny); } // wasted on the decoy
+    else if (struck || ny > groundY(camX + nx) || ny < 8) { m.dead = true; megaBoom(nx, ny, struck); } // flies past aircraft
+    else if (m.t > 600 || nx < -20 || nx > W + 20) m.dead = true;
+  }
+  // Unguided H-bomb (nothing locked): rises slowly underwater, then rockets into the sky
+  for (const m of missiles) {
+    if (m.guided || m.dead) continue;
     m.vy = Math.max(m.under ? -1.6 : -4.5, m.vy - (m.under ? 0.03 : 0.12));
     m.y += m.vy; m.x += 0.2;
     if (m.under && m.y < SURFACE) { // splash out of the water
@@ -931,10 +1292,11 @@ function update() {
       particles.push({ kind: 'fire', x: m.x + 2.5, y: m.y + 15, vx: rnd(-0.3, 0.3), vy: 1, life: 12, max: 12, size: rnd(2, 4), color: '#ffb347' });
       particles.push({ kind: 'smoke', x: m.x + 2.5, y: m.y + 18, vx: rnd(-0.2, 0.2), vy: 0.2, life: 50, max: 50, size: rnd(2, 4) });
     }
-    const target = enemies.find(e => !e.dead && ['boat', 'heli', 'drone'].includes(e.type) && hit(m, e));
-    if (target || m.y < 22) { m.dead = true; megaBoom(m.x + 2, m.y); }
+    const target = enemies.find(e => !e.dead && e.type === 'boat' && hit(m, e));
+    if (target || m.y < 22) { m.dead = true; megaBoom(m.x + 2, m.y, target); } // in the sky it hurts nobody
   }
   missiles = missiles.filter(m => !m.dead);
+  updateMyDrone();
   if (whiteFlash > 0.01) whiteFlash *= 0.9; else whiteFlash = 0;
 
   // Pickups: coins and the double-torpedo starfish
@@ -943,7 +1305,8 @@ function update() {
     if (hit(p, playerBox())) {
       p.dead = true;
       if (p.type === 'coin') { coins++; score += 5; save(); sfx.coin(); }
-      else { player.double = 600; sfx.power(); flash = { msg: 'RECHARGE RAPIDE !', t: 90 }; }
+      else if (p.type === 'life') { lives++; sfx.win(); flash = { msg: 'MEDEVAC CRATE: +1 LIFE', t: 90 }; }
+      else { player.double = 600; sfx.power(); flash = { msg: 'RAPID RELOAD', t: 90 }; }
     }
   }
   pickups = pickups.filter(p => !p.dead && p.x > -30);
@@ -1130,6 +1493,17 @@ function drawShip(x, y, accent, dbl, scale = 1, flip = false, hull = '#1a1d21') 
   ctx.restore();
 }
 
+function drawWarnLight(x, y, th) { // threat light on the sail: green = clear, orange = something aimed at us, red = close
+  const red = th < WARN_RED, col = th === Infinity ? '#4cff5a' : red ? '#ff2a2a' : '#ffa31a';
+  const on = th === Infinity || player.beepT > 3; // blinks with the beep
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = on ? (red ? 0.55 : 0.35) : 0.1; ctx.fillStyle = col;
+  ctx.beginPath(); ctx.arc(x, y, red ? 5 : 3.5, 0, 7); ctx.fill(); // glow
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  ctx.fillStyle = on ? col : '#3a2a20'; ctx.beginPath(); ctx.arc(x, y, 1.6, 0, 7); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.fillRect(x - 0.9, y - 0.9, 0.7, 0.7); // shine
+}
+
 function drawCIWS(x, y, k, a) { // Phalanx CIWS popping out of the deck: white radar dome over a gatling gun
   // (x, y) = hatch on the hull top, k = 0..1 raised, a = aim angle in the sub's frame (upper half)
   ctx.save();
@@ -1222,19 +1596,32 @@ function drawMine(e) {
   }
 }
 
-function drawOcto(e) {
-  const cx = e.x + 17, cy = e.y + 12, color = '#b04ad8';
-  ctx.strokeStyle = color; ctx.lineWidth = 4; ctx.lineCap = 'round';
-  for (let i = 0; i < 5; i++) { // tentacles trailing behind while swimming left
-    const ly = cy + 2 + i * 3, w = Math.sin(e.t * 4 + i) * 5;
-    ctx.beginPath(); ctx.moveTo(cx + 4, ly); ctx.quadraticCurveTo(cx + 16, ly + w, cx + 24, ly - w + 4); ctx.stroke();
+const OCTO_K = 0.5; // octopus size: art is 34x30 at 1
+function drawOcto(e) { // common octopus: mottled red-brown mantle, slit-pupil eyes, tapering arms trailing behind
+  ctx.save(); ctx.translate(e.x, e.y); ctx.scale(OCTO_K, OCTO_K); // drawn at half size (owner: 2x smaller)
+  const cx = 14, cy = 14;
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 6; i++) { // arms: thick at the base, thin at the tip, curling as it swims
+    const ly = cy + 3 + i * 2.6, w = Math.sin(e.t * 4 + i) * 5, ex = cx + 26 + i * 1.5, ey = ly + w * 0.6 + 3;
+    for (const [lw, col] of [[4.5, '#7a3a2c'], [2.2, '#9a5240']]) {
+      ctx.strokeStyle = col; ctx.lineWidth = lw * (i % 2 ? 0.85 : 1);
+      ctx.beginPath(); ctx.moveTo(cx + 2, ly); ctx.quadraticCurveTo(cx + 14, ly + w, ex, ey); ctx.stroke();
+    }
+    ctx.strokeStyle = '#7a3a2c'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(ex, ey); ctx.quadraticCurveTo(ex + 4, ey - 2 * Math.sign(w || 1), ex + 3, ey - 4); ctx.stroke(); // curled tip
   }
-  const g = ctx.createRadialGradient(cx - 4, cy - 5, 1, cx, cy, 14);
-  g.addColorStop(0, '#e2a6ff'); g.addColorStop(1, color);
-  ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(cx, cy, 13, 11, -0.3, 0, 7); ctx.fill();
-  ctx.fillStyle = '#7a2a9a'; ctx.beginPath(); ctx.arc(cx - 2, cy - 7, 1.8, 0, 7); ctx.arc(cx + 6, cy - 4, 1.4, 0, 7); ctx.fill();
-  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(cx - 6, cy, 3.5, 0, 7); ctx.arc(cx + 1, cy + 1, 3.5, 0, 7); ctx.fill();
-  ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(cx - 7, cy + 0.5, 1.8, 0, 7); ctx.arc(cx, cy + 1.5, 1.8, 0, 7); ctx.fill();
+  ctx.fillStyle = 'rgba(240,210,190,0.55)'; for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.arc(cx + 8 + i * 4, cy + 9 + i * 1.2, 0.9, 0, 7); ctx.fill(); } // suckers
+  if (!GR.octo) {
+    GR.octo = ctx.createRadialGradient(cx + 4, cy - 6, 1, cx + 6, cy - 3, 14);
+    GR.octo.addColorStop(0, '#c07a5e'); GR.octo.addColorStop(0.6, '#9a5240'); GR.octo.addColorStop(1, '#6a2e22');
+  }
+  ctx.fillStyle = GR.octo; // mantle, swept back above the arms
+  ctx.beginPath(); ctx.ellipse(cx + 7, cy - 5, 12, 8, -0.45, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cx, cy + 2, 8, 6.5, 0, 0, 7); ctx.fill(); // head
+  ctx.fillStyle = 'rgba(60,20,14,0.35)'; // mottling
+  ctx.beginPath(); ctx.arc(cx + 6, cy - 8, 1.6, 0, 7); ctx.arc(cx + 11, cy - 4, 1.2, 0, 7); ctx.arc(cx + 2, cy - 3, 1.1, 0, 7); ctx.arc(cx + 14, cy - 9, 1, 0, 7); ctx.fill();
+  ctx.fillStyle = '#e8d08a'; ctx.beginPath(); ctx.ellipse(cx - 3, cy, 2.4, 2, 0, 0, 7); ctx.fill(); // eye
+  ctx.fillStyle = '#111'; ctx.fillRect(cx - 4.8, cy - 0.4, 3.6, 0.9);                        // slit pupil
+  ctx.restore();
 }
 
 function drawEel(e) { // electric eel, head on the left, glowing spots along its side
@@ -1272,12 +1659,13 @@ function drawDiver(e) { // combat swimmer in a black wetsuit with a bomb on the 
   ctx.rotate(e.air ? (e.vy < 0 ? 0.6 : 1.3) * -e.face : Math.max(-0.5, Math.min(0.5, e.vy * 0.4 * e.face))); ctx.scale(e.face > 0 ? -1.5 : 1.5, 1.5);
   ctx.lineCap = 'round'; ctx.strokeStyle = '#15171a'; ctx.lineWidth = 3.2;
   ctx.beginPath(); ctx.moveTo(4, -0.5); ctx.lineTo(12, -1 + kick); ctx.moveTo(4, 0.8); ctx.lineTo(12, 1.5 - kick); ctx.stroke(); // legs
-  ctx.fillStyle = '#ffd23f'; // fins
+  ctx.fillStyle = '#26292d'; // fins
   for (const k of [-1 + kick, 1.5 - kick]) { ctx.beginPath(); ctx.moveTo(11, k); ctx.lineTo(18, k - 2.5); ctx.lineTo(18, k + 2.5); ctx.fill(); }
   ctx.fillStyle = '#15171a'; ctx.beginPath(); ctx.ellipse(-1, 0, 7.5, 3.6, 0, 0, 7); ctx.fill(); // body
   ctx.lineWidth = 2.2; ctx.beginPath(); ctx.moveTo(-5, 1.5); ctx.lineTo(-13, 3 + kick * 0.3); ctx.stroke(); // arm
   ctx.beginPath(); ctx.arc(-10, -1, 3.4, 0, 7); ctx.fill(); // hooded head
-  ctx.fillStyle = '#ffd23f'; ctx.fillRect(-14, -3, 3.4, 3); ctx.fillStyle = '#8fd8ff'; ctx.fillRect(-13.6, -2.6, 2.6, 2.2); // mask
+  ctx.fillStyle = '#050607'; ctx.fillRect(-14, -3, 3.4, 3); ctx.fillStyle = '#2c4a5a'; ctx.fillRect(-13.6, -2.6, 2.6, 2.2); // dark tactical mask
+  ctx.fillStyle = '#3a3f45'; ctx.fillRect(-6, -4.2, 5, 1.4); // rebreather
   if (e.bomb) {
     ctx.fillStyle = '#4a525a'; ctx.beginPath(); ctx.ellipse(0, -5.5, 6, 2.6, 0, 0, 7); ctx.fill(); // bomb tank
     ctx.fillStyle = '#c62828'; ctx.fillRect(-1.5, -8, 1.6, 5);
@@ -1291,19 +1679,21 @@ function drawBeluga(e) { // white whale with a bomb strapped on its back
   const cx = e.x + 25, cy = e.y + 15, wag = Math.sin(e.t * 7) * 0.35;
   ctx.save(); ctx.translate(cx, cy); ctx.rotate(Math.max(-0.4, Math.min(0.4, e.vy * 0.35 * e.face))); if (e.face > 0) ctx.scale(-1, 1);
   const g = ctx.createLinearGradient(0, -12, 0, 12);
-  g.addColorStop(0, '#ffffff'); g.addColorStop(0.6, '#e4f1f5'); g.addColorStop(1, '#a9c6d1');
+  g.addColorStop(0, '#eef2f2'); g.addColorStop(0.55, '#cfd9db'); g.addColorStop(1, '#8fa3aa');
   ctx.fillStyle = g;
   ctx.save(); ctx.translate(24, 0); ctx.rotate(wag); // tail + flukes
   ctx.beginPath(); ctx.moveTo(-10, -6); ctx.lineTo(2, -1.5); ctx.lineTo(2, 1.5); ctx.lineTo(-10, 7); ctx.fill();
   ctx.beginPath(); ctx.ellipse(4, -4, 5.5, 2.3, -0.6, 0, 7); ctx.ellipse(4, 4, 5.5, 2.3, 0.6, 0, 7); ctx.fill();
   ctx.restore();
   ctx.beginPath(); ctx.ellipse(1, 1, 22, 10, 0, 0, 7); ctx.fill();      // body
-  ctx.beginPath(); ctx.ellipse(-16, -1, 10, 8.5, 0, 0, 7); ctx.fill();  // round melon head
-  ctx.fillStyle = '#c3dae2'; ctx.beginPath(); ctx.ellipse(-7, 8, 5, 2, 0.5 + Math.sin(e.t * 7) * 0.2, 0, 7); ctx.fill(); // flipper
-  ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(-17, -1, 1.5, 0, 7); ctx.fill();
-  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(-17.5, -1.6, 0.5, 0, 7); ctx.fill();
-  ctx.strokeStyle = '#7d9aa5'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(-21, 1, 4, 0.3, 1.5); ctx.stroke(); // smile
-  ctx.fillStyle = 'rgba(255,170,190,0.6)'; ctx.beginPath(); ctx.arc(-14, 3, 1.8, 0, 7); ctx.fill(); // cheek
+  ctx.beginPath(); ctx.ellipse(-15, 0, 10, 7.5, 0.1, 0, 7); ctx.fill();  // melon head
+  ctx.beginPath(); ctx.ellipse(-24, 2.5, 3.5, 2.6, 0, 0, 7); ctx.fill(); // short beak
+  ctx.fillStyle = 'rgba(90,110,118,0.25)'; // mottled skin and the dorsal ridge
+  ctx.beginPath(); ctx.ellipse(6, -2, 5, 2, 0.2, 0, 7); ctx.ellipse(-4, 4, 4, 1.6, -0.2, 0, 7); ctx.ellipse(14, 3, 3, 1.3, 0, 0, 7); ctx.fill();
+  ctx.fillRect(-2, -9.5, 16, 1.2);
+  ctx.fillStyle = '#a7b8be'; ctx.beginPath(); ctx.ellipse(-7, 8, 5, 2, 0.5 + Math.sin(e.t * 7) * 0.2, 0, 7); ctx.fill(); // flipper
+  ctx.strokeStyle = '#7a8b91'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.moveTo(-27, 3.5); ctx.lineTo(-20, 4.2); ctx.stroke(); // mouth line
+  ctx.fillStyle = '#1a1d20'; ctx.beginPath(); ctx.ellipse(-17, -0.5, 1.1, 0.8, 0, 0, 7); ctx.fill(); // small eye
   if (e.bomb) {
     ctx.strokeStyle = '#5b3a1e'; ctx.lineWidth = 2.5; // harness
     ctx.beginPath(); ctx.ellipse(0, 1, 3, 10.5, 0, 0, 7); ctx.stroke();
@@ -1338,59 +1728,140 @@ function drawBoat(e) { // stealth frigate (Naval Group FDI) facing left
   ctx.beginPath(); ctx.moveTo(x + 39, y - 32); ctx.lineTo(x + 48, y - 29); ctx.lineTo(x + 39, y - 26); ctx.fill(); // flag
   ctx.fillStyle = '#d5dade'; ctx.beginPath(); ctx.arc(x + 54, y + 2, 3.5, 0, 7); ctx.fill(); // radome
   ctx.fillStyle = '#5c646c'; ctx.fillRect(x + 59, y, 5, 5);                         // exhaust
-  ctx.fillStyle = '#6b7380'; for (let i = 0; i < 4; i++) ctx.fillRect(x + 65 + i * 2.2, y + 9, 1.5, 6); // missile canisters
   ctx.fillStyle = '#a9b0b6'; ctx.fillRect(x + 74, y + 8, 10, 7);                    // hangar
   ctx.fillStyle = '#7d858c'; ctx.fillRect(x + 83, y + 9, 1, 6);
   ctx.fillStyle = '#eceff1'; ctx.fillRect(x + 86, y + 14, 22, 1);                   // helipad marking
-  const a = e.gunA || 0.2; // 76 mm gun, barrel follows the aim
-  ctx.save(); ctx.translate(x + 14, y + 13); ctx.rotate(-a);
-  ctx.fillStyle = '#333'; ctx.fillRect(-10, -0.6, 10, 1.2); ctx.restore();
-  ctx.fillStyle = '#8e969d'; ctx.beginPath(); ctx.arc(x + 14, y + 15, 3.6, Math.PI, 0); ctx.fill();
+  drawRampart(x + 14, y + 11, e.rpA ?? -2.6, e.rpKick || 0);
 }
 
-function drawShell(s) { // gun shell, nose first
-  ctx.save(); ctx.translate(s.x + 3, s.y + 1.5); ctx.rotate(Math.atan2(s.vy, s.vx));
-  ctx.fillStyle = '#2b2b2b'; ctx.beginPath(); ctx.ellipse(0, 0, 4, 1.6, 0, 0, 7); ctx.fill();
-  ctx.fillStyle = '#d4a017'; ctx.fillRect(-4, -1.4, 2, 2.8);                         // brass base
+function drawRampart(x, y, a, kick) { // Naval Group Rampart: turret with 4 boxy modules, tube grid on the front face
+  ctx.fillStyle = '#8e969d'; // pedestal
+  ctx.beginPath(); ctx.moveTo(x - 5, y + 4); ctx.lineTo(x - 3.5, y + 0.5); ctx.lineTo(x + 3.5, y + 0.5); ctx.lineTo(x + 5, y + 4); ctx.fill();
+  ctx.save(); ctx.translate(x, y); ctx.rotate(a); if (Math.cos(a) < 0) ctx.scale(1, -1); // sensor stays on top
+  ctx.translate(-kick * 0.25, 0); // recoil
+  ctx.fillStyle = '#aab2b8'; ctx.fillRect(-5, -4.5, 10, 9);                         // module block
+  ctx.fillStyle = '#c3c9ce'; ctx.fillRect(-5, -4.5, 10, 1);                         // lit top edge
+  ctx.fillStyle = '#7d858c'; ctx.fillRect(-5, -0.3, 10, 0.6); ctx.fillRect(-0.3, -4.5, 0.6, 9); // seams between the modules
+  ctx.fillStyle = '#5c646c'; ctx.fillRect(4, -4.5, 1.6, 9);                         // front face
+  ctx.fillStyle = '#1e2226'; for (const ty of [-3.4, -1.6, 0.8, 2.6]) ctx.fillRect(4.6, ty, 1, 1); // tube mouths
+  ctx.fillStyle = '#3a4048'; ctx.fillRect(-2.5, -6.5, 4.5, 2);                      // electro-optical sensor
+  ctx.fillStyle = T % 40 < 20 ? '#ff5a3a' : '#a33'; ctx.fillRect(1.2, -6.1, 1, 1.2); // laser designator
   ctx.restore();
 }
 
-function drawHeli(e) { // military helicopter facing left
-  const x = e.x, y = e.y;
-  ctx.fillStyle = '#4b5320';
-  ctx.fillRect(x + 30, y + 10, 28, 4);                                              // tail boom
-  ctx.beginPath(); ctx.moveTo(x + 56, y + 12); ctx.lineTo(x + 62, y + 3); ctx.lineTo(x + 62, y + 14); ctx.fill(); // tail fin
-  ctx.fillStyle = '#ccc'; ctx.beginPath(); ctx.ellipse(x + 60, y + 6, 1, 5 * Math.abs(Math.sin(T * 0.6)) + 1, 0, 0, 7); ctx.fill(); // tail rotor
-  const g = ctx.createLinearGradient(0, y + 4, 0, y + 22);
-  g.addColorStop(0, '#6b7a3a'); g.addColorStop(1, '#2f3515');
-  ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(x + 20, y + 13, 18, 8, 0, 0, 7); ctx.fill(); // body
-  ctx.fillStyle = '#8fd3ff'; ctx.beginPath(); ctx.ellipse(x + 9, y + 11, 7, 5, -0.2, Math.PI * 0.9, Math.PI * 1.9); ctx.fill(); // cockpit
-  ctx.strokeStyle = '#222'; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.moveTo(x + 8, y + 24); ctx.lineTo(x + 34, y + 24); ctx.moveTo(x + 14, y + 20); ctx.lineTo(x + 13, y + 24); ctx.moveTo(x + 28, y + 20); ctx.lineTo(x + 29, y + 24); ctx.stroke(); // skids
-  ctx.fillStyle = '#333'; ctx.fillRect(x + 19, y + 1, 3, 4);                       // rotor mast
-  const span = e.parked ? 26 : 30 * Math.abs(Math.cos(T * 0.5)) + 6;                               // spinning main rotor
-  ctx.fillStyle = 'rgba(40,40,40,0.8)'; ctx.fillRect(x + 20.5 - span, y, span * 2, 1.6);
+function drawCM(s) { // enemy sub decoy: dark red canister with a blinking light
+  ctx.save(); ctx.translate(s.x + 3, s.y + 3); ctx.rotate(Math.sin(T * 0.1 + s.vx) * 0.3);
+  ctx.fillStyle = '#8a1c1c'; ctx.fillRect(-5, -2.5, 10, 5);
+  ctx.fillStyle = '#3a0a0a'; ctx.fillRect(-5, -2.5, 2, 5); ctx.fillRect(3, -2.5, 2, 5);
+  ctx.fillStyle = T % 20 < 10 ? '#ff5050' : '#ffd0d0'; ctx.beginPath(); ctx.arc(0, -3.5, 1.5, 0, 7); ctx.fill();
+  ctx.restore();
+}
+function drawSAM(s) { // Rampart air/air missile: slim white dart with a red nose
+  ctx.save(); ctx.translate(s.x + s.w / 2, s.y + s.h / 2); ctx.rotate(s.a);
+  ctx.fillStyle = '#eef1f3'; ctx.fillRect(-4, -0.8, 7, 1.6);
+  ctx.fillStyle = '#c62828'; ctx.beginPath(); ctx.moveTo(3, -0.8); ctx.lineTo(5, 0); ctx.lineTo(3, 0.8); ctx.fill();
+  ctx.fillStyle = '#9aa2a9'; ctx.fillRect(-4, -2, 1.5, 4);                          // tail fins
+  ctx.fillStyle = '#ffd23f'; ctx.fillRect(-5.2, -0.6, 1.2, 1.2);                    // motor
+  ctx.restore();
 }
 
-function drawDrone(e) { // quadcopter
+function drawASM(s) { // anti-ship missile, nose first: ogive nose, cruciform wings, tail fins, motor glow
+  ctx.save(); ctx.translate(s.x + s.w / 2, s.y + s.h / 2); ctx.rotate(s.a);
+  ctx.fillStyle = '#7d858d';
+  ctx.beginPath(); ctx.moveTo(-1, -1.2); ctx.lineTo(-3.5, -3.6); ctx.lineTo(-5, -3.6); ctx.lineTo(-4, -1.2); ctx.fill();        // wing
+  ctx.beginPath(); ctx.moveTo(-1, 1.2); ctx.lineTo(-3.5, 3.6); ctx.lineTo(-5, 3.6); ctx.lineTo(-4, 1.2); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(-5.5, -1.2); ctx.lineTo(-7, -2.8); ctx.lineTo(-7.5, -1.2); ctx.moveTo(-5.5, 1.2); ctx.lineTo(-7, 2.8); ctx.lineTo(-7.5, 1.2); ctx.fill(); // tail fins
+  ctx.fillStyle = '#e4e8eb'; ctx.fillRect(-7, -1.3, 11, 2.6);                                                                    // body
+  ctx.fillStyle = '#b9c0c6'; ctx.fillRect(-7, 0.4, 11, 0.9);
+  ctx.fillStyle = '#3a3f45'; ctx.beginPath(); ctx.moveTo(4, -1.3); ctx.quadraticCurveTo(7.5, -1, 7.5, 0); ctx.quadraticCurveTo(7.5, 1, 4, 1.3); ctx.fill(); // radar nose
+  ctx.fillStyle = '#c62828'; ctx.fillRect(2.5, -1.3, 0.9, 2.6);                                                                  // warhead band
+  ctx.fillStyle = T % 4 < 2 ? '#fff6c8' : '#ffd23f'; ctx.beginPath(); ctx.arc(-7.5, 0, 1.4, 0, 7); ctx.fill();                   // motor
+  ctx.restore();
+}
+
+function drawHeli(e) { // naval helicopter (NH90 / Caiman style), navy gray, facing left, in local space
+  ctx.save(); ctx.translate(e.x, e.y);
+  if (!GR.heli) {
+    GR.heli = ctx.createLinearGradient(0, 4, 0, 22);
+    GR.heli.addColorStop(0, '#a7afb6'); GR.heli.addColorStop(0.45, '#7f878f'); GR.heli.addColorStop(1, '#4b5258');
+  }
+  ctx.fillStyle = '#6c747b'; // tail boom, tapering up to the fin
+  ctx.beginPath(); ctx.moveTo(34, 9); ctx.lineTo(56, 8); ctx.lineTo(56, 11); ctx.lineTo(34, 16); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(52, 9); ctx.lineTo(57, 0.5); ctx.lineTo(61, 0.5); ctx.lineTo(60, 11); ctx.lineTo(55, 11); ctx.fill(); // swept fin
+  ctx.fillStyle = '#5a6168'; ctx.fillRect(49, 11, 9, 1.5);                         // stabilizer
+  ctx.fillStyle = 'rgba(190,196,202,0.55)'; // tail rotor disc and blade
+  ctx.beginPath(); ctx.ellipse(61.5, 5, 1.2, 5, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#3a3f45'; const tb = Math.sin(T * 0.9) * 5; ctx.fillRect(61, 5 - Math.abs(tb), 1, Math.abs(tb) * 2);
+  ctx.fillStyle = GR.heli; // fuselage: rounded nose, deep cabin, rear ramp sloping into the boom
+  ctx.beginPath(); ctx.moveTo(3, 15); ctx.quadraticCurveTo(2, 8, 9, 6); ctx.lineTo(30, 5); ctx.quadraticCurveTo(36, 6, 38, 9);
+  ctx.lineTo(36, 16); ctx.lineTo(30, 21); ctx.lineTo(9, 21); ctx.quadraticCurveTo(3, 20, 3, 15); ctx.fill();
+  ctx.fillStyle = '#8d959c'; ctx.beginPath(); ctx.moveTo(13, 5.5); ctx.lineTo(15, 2.5); ctx.lineTo(31, 2.5); ctx.lineTo(34, 6); ctx.fill(); // engine housing
+  ctx.fillStyle = '#2b3036'; ctx.fillRect(29, 3.2, 3, 1.6);                        // exhaust
+  ctx.fillStyle = '#1f2a33'; // cockpit glass, tinted, with a glint
+  ctx.beginPath(); ctx.moveTo(4, 12); ctx.quadraticCurveTo(5, 7.5, 10, 7); ctx.lineTo(13, 7); ctx.lineTo(12, 12); ctx.fill();
+  ctx.fillStyle = 'rgba(200,230,255,0.35)'; ctx.fillRect(7, 8, 3, 1);
+  ctx.fillStyle = '#25292e'; ctx.fillRect(15, 8, 3, 3); ctx.fillRect(20, 8, 3, 3); // cabin windows
+  ctx.strokeStyle = '#555c63'; ctx.lineWidth = 0.6; ctx.strokeRect(14, 7.5, 11, 11); // sliding door
+  ctx.fillStyle = '#5a6168'; ctx.beginPath(); ctx.ellipse(21, 20.5, 6, 2, 0, 0, 7); ctx.fill(); // sponson
+  ctx.fillStyle = '#6c747b'; ctx.beginPath(); ctx.ellipse(6, 19, 3, 2, 0, 0, 7); ctx.fill(); // chin radome
+  ctx.fillStyle = '#1b1d20'; // wheels
+  ctx.beginPath(); ctx.arc(8, 23.5, 1.6, 0, 7); ctx.arc(22, 23.5, 1.8, 0, 7); ctx.fill();
+  ctx.fillStyle = '#3a3f45'; ctx.fillRect(7.5, 21, 1, 2); ctx.fillRect(21.5, 21.5, 1, 2);
+  ctx.fillStyle = T % 40 < 6 ? '#ff3030' : '#601010'; ctx.fillRect(58, 0, 1.5, 1.5); // anti-collision light
+  ctx.fillStyle = '#2b3036'; ctx.fillRect(21, 0, 2, 3);                            // rotor mast
+  ctx.fillStyle = '#3a3f45'; ctx.fillRect(19.5, -0.5, 5, 1.5);                     // hub
+  if (e.parked) { ctx.fillStyle = '#3a3f45'; ctx.fillRect(4, -0.2, 36, 1); }       // blades folded back
+  else {
+    ctx.fillStyle = 'rgba(150,156,162,0.25)'; ctx.beginPath(); ctx.ellipse(22, 0, 32, 1.6, 0, 0, 7); ctx.fill(); // blur disc
+    ctx.fillStyle = 'rgba(40,44,48,0.85)'; // two blades, foreshortened as they turn
+    for (const ph of [0, Math.PI / 2]) { const c = Math.cos(T * 0.5 + ph) * 31; ctx.fillRect(22 + Math.min(0, c), -0.4, Math.abs(c), 1.3); ctx.fillRect(22 - Math.max(0, c), -0.4, Math.abs(c), 1.3); }
+  }
+  ctx.restore();
+}
+
+function drawDrone(e) { // military quadcopter, gray carbon frame, gimbal camera and laser under the body
   const x = e.x, y = e.y;
-  if (!e.dead && e.beam > 0) drawLaser({ x1: x + 12, y1: y + 12, x2: e.lx, y2: e.ly, hit: e.beamHit });
+  if (!e.dead && e.beam > 0) drawLaser({ x1: x + 12, y1: y + 12, x2: e.lx, y2: e.ly, hit: e.beamHit, green: e.mine });
   else if (!e.dead && e.aim > 0 && T % 6 < 4) { // aiming line
-    ctx.strokeStyle = e.aim < DRONE_LOCK ? 'rgba(255,40,40,0.8)' : 'rgba(255,60,60,0.4)'; ctx.lineWidth = 0.7;
+    ctx.strokeStyle = e.mine ? 'rgba(60,255,110,0.7)' : e.aim < DRONE_LOCK ? 'rgba(255,40,40,0.8)' : 'rgba(255,60,60,0.4)'; ctx.lineWidth = 0.7;
     ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(x + 12, y + 12); ctx.lineTo(e.tx, e.ty); ctx.stroke(); ctx.setLineDash([]);
   }
-  ctx.strokeStyle = '#333'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(x + 4, y + 4); ctx.lineTo(x + 28, y + 4); ctx.stroke();       // arms
-  ctx.fillStyle = 'rgba(60,60,60,0.7)';
-  for (const rx of [x + 4, x + 28]) { ctx.beginPath(); ctx.ellipse(rx, y + 2, 7 * Math.abs(Math.sin(T * 0.8 + rx)) + 2, 1.2, 0, 0, 7); ctx.fill(); } // rotors
-  const g = ctx.createLinearGradient(0, y + 3, 0, y + 12);
-  g.addColorStop(0, '#b0b8c0'); g.addColorStop(1, '#5a6470');
-  ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(x + 16, y + 7, 9, 4.5, 0, 0, 7); ctx.fill(); // body
-  ctx.fillStyle = !e.dead && (e.aim > 0 || e.beam > 0) ? '#f33' : '#222'; ctx.beginPath(); ctx.arc(x + 12, y + 11, 2.2, 0, 7); ctx.fill(); // laser eye
-  ctx.fillStyle = T % 20 < 10 ? '#f33' : '#600'; ctx.beginPath(); ctx.arc(x + 20, y + 4, 1.3, 0, 7); ctx.fill();
+  ctx.save(); ctx.translate(x, y);
+  ctx.fillStyle = '#4d545a'; ctx.fillRect(8, 3.5, 16, 1.2);                        // rear arms (behind)
+  ctx.fillRect(7, 2, 2, 2.5); ctx.fillRect(23, 2, 2, 2.5);
+  ctx.fillStyle = '#6a7279'; ctx.fillRect(3, 4.5, 26, 1.6);                        // front arms
+  ctx.fillStyle = '#3a3f45'; for (const mx of [2, 27]) ctx.fillRect(mx, 2.6, 3, 3); // motors
+  ctx.fillStyle = 'rgba(170,176,182,0.45)'; // propeller blur
+  for (const px of [3.5, 28.5, 8, 24]) { ctx.beginPath(); ctx.ellipse(px, 2, px === 8 || px === 24 ? 5 : 6.5, 0.9, 0, 0, 7); ctx.fill(); }
+  ctx.fillStyle = '#2b3036'; for (const px of [3.5, 28.5]) { const b = Math.sin(T * 1.3 + px) * 6; ctx.fillRect(px - Math.abs(b), 1.6, Math.abs(b) * 2, 0.8); }
+  if (!GR.drone) {
+    GR.drone = ctx.createLinearGradient(0, 3, 0, 11);
+    GR.drone.addColorStop(0, '#b4bbc2'); GR.drone.addColorStop(0.5, '#868e96'); GR.drone.addColorStop(1, '#565d64');
+  }
+  if (!GR.droneMine) {
+    GR.droneMine = ctx.createLinearGradient(0, 3, 0, 11);
+    GR.droneMine.addColorStop(0, '#5e656c'); GR.droneMine.addColorStop(0.5, '#3a3f45'); GR.droneMine.addColorStop(1, '#1e2125');
+  }
+  ctx.fillStyle = e.mine ? GR.droneMine : GR.drone; // central body (ours: dark gray)
+  ctx.beginPath(); ctx.moveTo(9, 9); ctx.lineTo(8, 5.5); ctx.quadraticCurveTo(16, 2, 24, 5.5); ctx.lineTo(23, 9); ctx.quadraticCurveTo(16, 10.5, 9, 9); ctx.fill();
+  ctx.fillStyle = '#d5dade'; ctx.fillRect(14.5, 3, 3, 1);                          // GPS puck
+  ctx.fillStyle = '#2b3036'; ctx.fillRect(21, 0, 0.7, 4);                          // antenna
+  ctx.strokeStyle = '#3a3f45'; ctx.lineWidth = 0.8; // landing legs
+  ctx.beginPath(); ctx.moveTo(10, 9); ctx.lineTo(8, 13.5); ctx.moveTo(22, 9); ctx.lineTo(24, 13.5); ctx.moveTo(6.5, 13.5); ctx.lineTo(9.5, 13.5); ctx.moveTo(22.5, 13.5); ctx.lineTo(25.5, 13.5); ctx.stroke();
+  ctx.fillStyle = '#3a3f45'; ctx.fillRect(11.4, 8.5, 1.2, 1);                      // gimbal mount
+  ctx.fillStyle = '#2b3036'; ctx.beginPath(); ctx.arc(12, 11, 2.4, 0, 7); ctx.fill(); // gimbal ball
+  ctx.fillStyle = !e.dead && (e.aim > 0 || e.beam > 0) ? (e.mine ? '#3cff6a' : '#ff3333') : (e.mine ? '#1f6b35' : '#4a90b8'); // lens: lit when it aims
+  ctx.beginPath(); ctx.arc(11.2, 11.4, 1.1, 0, 7); ctx.fill();
+  ctx.fillStyle = e.mine ? (T % 20 < 10 ? '#3cff6a' : '#0a4a1a') : (T % 20 < 10 ? '#ff3333' : '#600'); ctx.fillRect(19.5, 6, 1.2, 1.2); // status light
+  if (e.mine) { ctx.fillStyle = T % 30 < 15 ? '#3cff6a' : '#1f6b35'; ctx.fillRect(2.5, 5.6, 1.2, 1.2); ctx.fillRect(28, 5.6, 1.2, 1.2); } // green arm lights
+  ctx.restore();
 }
 
 function drawHBomb(m) {
+  if (m.guided) { // guided: drawn along its heading
+    ctx.save(); ctx.translate(m.x + 2.5, m.y + 7); ctx.rotate(m.a + Math.PI / 2); ctx.translate(-m.x - 2.5, -m.y - 7);
+    drawHBomb({ x: m.x, y: m.y }); ctx.restore(); return;
+  }
   ctx.fillStyle = '#c62828'; ctx.beginPath(); ctx.moveTo(m.x, m.y + 4); ctx.lineTo(m.x + 2.5, m.y - 2); ctx.lineTo(m.x + 5, m.y + 4); ctx.fill(); // nose
   const g = ctx.createLinearGradient(m.x, 0, m.x + 5, 0);
   g.addColorStop(0, '#999'); g.addColorStop(0.5, '#fff'); g.addColorStop(1, '#888');
@@ -1474,8 +1945,6 @@ function drawParticles() {
       ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = a; ctx.fillStyle = p.color;
       ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (0.4 + a * 0.6), 0, 7); ctx.fill();
       ctx.globalCompositeOperation = 'source-over';
-    } else if (p.kind === 'freed') {
-      ctx.globalAlpha = Math.min(1, p.life / 40); p.e.type === 'beluga' ? drawBeluga(p.e) : drawDiver(p.e);
     } else if (p.kind === 'wreck') {
       ctx.globalAlpha = Math.min(1, p.life / 40); drawEnemy(p.e, p.rot);
     } else if (p.kind === 'flash') {
@@ -1517,10 +1986,148 @@ function text(str, y, size = 20, color = '#fff', x = W / 2, align = 'center') {
   ctx.fillStyle = color; ctx.fillText(str, x, y);
 }
 
+// ---------- Tiny 3D for the welcome screen: flat-shaded meshes, painter's sort, no library ----------
+// A mesh is a list of faces { p: [[x, y, z], ...], c: [r, g, b] }; x = length (bow +x), y = up, z = beam.
+function box3(f, x0, x1, y0, y1, z0, z1, c) {
+  const v = (x, y, z) => [x, y, z];
+  f.push({ p: [v(x0, y0, z1), v(x1, y0, z1), v(x1, y1, z1), v(x0, y1, z1)], c }, { p: [v(x0, y0, z0), v(x1, y0, z0), v(x1, y1, z0), v(x0, y1, z0)], c },
+         { p: [v(x0, y1, z0), v(x1, y1, z0), v(x1, y1, z1), v(x0, y1, z1)], c }, { p: [v(x0, y0, z0), v(x1, y0, z0), v(x1, y0, z1), v(x0, y0, z1)], c },
+         { p: [v(x1, y0, z0), v(x1, y1, z0), v(x1, y1, z1), v(x1, y0, z1)], c }, { p: [v(x0, y0, z0), v(x0, y1, z0), v(x0, y1, z1), v(x0, y0, z1)], c });
+}
+function subMesh(hull, fins) { // attack sub: hull of revolution, sail with planes, X rudders, pump-jet
+  const f = [], N = 18, M = 14, L = 100, R = 7.5;
+  const rad = t => t < 0.2 ? R * (0.25 + 0.75 * Math.sin(t / 0.2 * Math.PI / 2)) : t > 0.84 ? R * Math.sqrt(Math.max(0, 1 - ((t - 0.84) / 0.16) ** 2)) : R;
+  const rings = [];
+  for (let i = 0; i <= N; i++) { const t = i / N, x = -L / 2 + t * L, r = rad(t); rings.push(Array.from({ length: M }, (_, j) => { const a = j / M * Math.PI * 2; return [x, Math.cos(a) * r, Math.sin(a) * r]; })); }
+  for (let i = 0; i < N; i++) for (let j = 0; j < M; j++) { const k = (j + 1) % M; f.push({ p: [rings[i][j], rings[i][k], rings[i + 1][k], rings[i + 1][j]], c: hull }); }
+  f.push({ p: rings[0].slice(), c: fins });                                   // stern / pump-jet face
+  box3(f, 12, 26, R - 1, R + 9, -2.2, 2.2, hull);                             // sail
+  box3(f, 17, 22, R + 5, R + 6, -7, 7, fins);                                 // sail planes
+  box3(f, 24, 25.5, R + 9, R + 12, -0.4, 0.4, fins);                          // periscope mast
+  for (const a of [0.785, 2.356, 3.927, 5.498]) { const cy = Math.cos(a), cz = Math.sin(a); // X rudders
+    f.push({ p: [[-48, cy * 2, cz * 2], [-40, cy * 4, cz * 4], [-40, cy * (R + 5), cz * (R + 5)], [-48, cy * (R + 5), cz * (R + 5)]], c: fins }); }
+  return f;
+}
+function frigateMesh() { // FDI-style stealth frigate: lofted hull, faceted superstructure, pyramid mast, hangar, Rampart
+  const f = [], hullC = [154, 162, 169], deckC = [125, 133, 140], keelC = [58, 63, 69], sup = [179, 186, 192];
+  const sec = [[-55, 7, 5], [-40, 8, 6], [-10, 8.5, 6], [20, 8, 6.5], [38, 6, 7], [50, 3, 8], [57, 0.4, 8.5]]; // x, half-beam, deck height
+  const P = ([x, hw, dy]) => [[x, dy, -hw], [x, dy, hw], [x, -5, hw * 0.55], [x, -5, -hw * 0.55]];
+  for (let k = 0; k < sec.length - 1; k++) {
+    const a = P(sec[k]), b = P(sec[k + 1]);
+    f.push({ p: [a[1], b[1], b[2], a[2]], c: hullC }, { p: [a[0], b[0], b[3], a[3]], c: hullC }, { p: [a[2], b[2], b[3], a[3]], c: keelC }, { p: [a[0], b[0], b[1], a[1]], c: deckC });
+  }
+  const t = P(sec[0]); f.push({ p: [t[0], t[1], t[2], t[3]], c: hullC });  // transom
+  box3(f, -12, 24, 6, 15, -5.5, 5.5, sup);                                   // superstructure
+  box3(f, 16, 26, 6, 12, -5, 5, sup);                                        // bridge
+  const m = [[6, 15, -4.5], [20, 15, -4.5], [20, 15, 4.5], [6, 15, 4.5]], top = [[11, 32, -1], [15, 32, -1], [15, 32, 1], [11, 32, 1]];
+  for (let q = 0; q < 4; q++) f.push({ p: [m[q], m[(q + 1) % 4], top[(q + 1) % 4], top[q]], c: [163, 171, 177] }); // pyramid mast
+  box3(f, 12.4, 13.6, 32, 42, -0.3, 0.3, [51, 51, 51]);                     // needle mast
+  box3(f, -32, -12, 6, 13, -5.5, 5.5, [169, 176, 182]);                      // hangar
+  box3(f, -8, -3, 15, 19, -1.6, 1.6, [92, 100, 108]);                        // exhaust
+  box3(f, -2, 2, 15, 19, -2, 2, [213, 218, 222]);                            // radome
+  box3(f, 38, 44, 8, 13, -3, 3, [142, 150, 157]);                            // Rampart turret
+  box3(f, 44, 44.8, 8.5, 12.5, -2.6, 2.6, [30, 34, 38]);                     // its tube face
+  return f;
+}
+const MESH = {}; // built on first use
+const V3 = []; // scratch for projected faces
+function draw3D(mesh, cx, cy, s, yaw, pitch) {
+  const cyw = Math.cos(yaw), syw = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+  const Lx = -0.45, Ly = 0.75, Lz = -0.5; // light from the upper left, toward the viewer
+  V3.length = 0;
+  for (const fc of mesh) {
+    const q = fc.p.map(([x, y, z]) => { const x1 = x * cyw + z * syw, z1 = -x * syw + z * cyw; return [x1, y * cp - z1 * sp, y * sp + z1 * cp]; });
+    const [a, b, c] = q, ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx; const nl = Math.hypot(nx, ny, nz) || 1;
+    const k = 0.32 + 0.68 * Math.abs((nx * Lx + ny * Ly + nz * Lz) / nl / 1.0247);
+    V3.push({ q, z: q.reduce((m, v) => m + v[2], 0) / q.length, col: 'rgb(' + (fc.c[0] * k | 0) + ',' + (fc.c[1] * k | 0) + ',' + (fc.c[2] * k | 0) + ')' });
+  }
+  V3.sort((u, v) => v.z - u.z); // far faces first
+  ctx.lineWidth = 0.6; ctx.lineJoin = 'round';
+  for (const v of V3) {
+    ctx.fillStyle = ctx.strokeStyle = v.col; ctx.beginPath();
+    v.q.forEach(([x, y], n) => ctx[n ? 'lineTo' : 'moveTo'](cx + x * s, cy - y * s));
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+}
+
+// Threat recognition cards on the welcome screen (2D art from the game); objects made once
+const ROSTER = [
+  { name: 'NAVAL MINE', note: 'Proximity fuse. Laser it', e: { x: 0, y: 0 }, f: drawMine, bx: -2, by: -2, w: 24, h: 24 },
+  { name: 'OCTOPUS', note: '2 torpedoes. Ink cloud', e: { x: 0, y: 0, t: 0 }, f: drawOcto, bx: 0, by: 0, w: 22, h: 16 },
+  { name: 'ELECTRIC EEL', m: 2, note: 'EMP jams weapons 10 s', e: { x: 0, y: 0, t: 0 }, f: drawEel, bx: 0, by: -4, w: 80, h: 22 },
+  { name: 'KAMIKAZE WHALE', m: 2, note: 'Bomb on back, dodges', e: { x: 0, y: 0, t: 0, vy: 0, face: -1, bomb: true }, f: drawBeluga, bx: -4, by: -8, w: 58, h: 36 },
+  { name: 'COMBAT SWIMMER', m: 2, note: 'Drops from ships, helos', e: { x: 0, y: 0, t: 0, vy: 0, face: -1, bomb: true }, f: drawDiver, bx: -4, by: -6, w: 52, h: 30 },
+  { name: 'NAVAL HELO', note: 'Depth charges. Use CIWS', e: { x: 0, y: 0 }, f: drawHeli, bx: -10, by: -2, w: 74, h: 30 },
+  { name: 'ATTACK DRONE', note: 'Laser near surface: dive', e: { x: 0, y: 0, t: 0 }, f: drawDrone, bx: 0, by: 0, w: 32, h: 16 },
+  { name: 'ANTI-SHIP MISSILE', note: 'Hits surfaced subs: CIWS', e: { x: 0, y: 0, w: 14, h: 4, a: Math.PI }, f: drawASM, bx: -2, by: -4, w: 18, h: 12 },
+];
+const SHOWCASE = [
+  { name: 'YOUR BOAT: SUFFREN-CLASS SSN', note: 'Torpedoes, laser, H-bomb, CIWS', mesh: 'mine', s: 1.9 },
+  { name: 'ENEMY ATTACK SUB', note: 'Homing torpedoes. Decoys from mission 3', mesh: 'enemy', s: 1.9 },
+  { name: 'ENEMY FRIGATE + RAMPART', note: 'Depth charges, drones, SAMs, missiles', mesh: 'frigate', s: 1.75 },
+];
+
+function drawHelp(paused) { // full-screen welcome page (threat recognition); also shown over the frozen game when paused (ESC)
+  if (!MESH.mine) { MESH.mine = subMesh([46, 51, 57], [24, 27, 31]); MESH.enemy = subMesh([107, 118, 130], [70, 78, 86]); MESH.frigate = frigateMesh(); }
+  ctx.fillStyle = paused ? 'rgba(2,12,26,0.9)' : 'rgba(2,12,26,0.82)'; ctx.fillRect(-20, -20, W + 40, H + 40);
+  ctx.strokeStyle = 'rgba(60,255,110,0.06)'; ctx.lineWidth = 1; ctx.beginPath(); // sonar grid
+  for (let x = 0; x <= W; x += 40) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+  for (let y = 0; y <= H; y += 40) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
+  ctx.stroke();
+  text('BATTLE BENEATH THE SEA', 38, 30, '#ffd700');
+  text('THREAT RECOGNITION  //  CLASSIFIED', 56, 11, '#ffa31a');
+  SHOWCASE.forEach((m, i) => { // 3D: subs and the frigate turn slowly
+    const cx = 140 + i * 260, cy = 120;
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(cx, cy + 34, 85, 9, 0, 0, 7); ctx.fill(); // shadow
+    draw3D(MESH[m.mesh], cx, cy, m.s, (i ? Math.PI - 0.3 : 0.3) + Math.sin(T * 0.012 + i * 1.7) * 0.32, 0.22); // sways in a 3/4 view
+    text(m.name, 178, 12, i ? '#ff8a80' : '#7f7', cx); text(m.note, 193, 10, '#cde', cx);
+  });
+  ROSTER.forEach((r, i) => { // 2D cards
+    const cx = 10 + (i % 4) * 196, cy = 206 + Math.floor(i / 4) * 66, cw = 188, ch = 60;
+    ctx.fillStyle = 'rgba(10,30,50,0.85)'; ctx.fillRect(cx, cy, cw, ch);
+    ctx.strokeStyle = r.m ? 'rgba(255,90,80,0.5)' : 'rgba(255,163,26,0.45)'; ctx.lineWidth = 1; ctx.strokeRect(cx + 0.5, cy + 0.5, cw - 1, ch - 1);
+    r.e.t = T * 0.02;
+    const k = Math.min(52 / r.w, 40 / r.h);
+    ctx.save(); ctx.beginPath(); ctx.rect(cx + 1, cy + 1, cw - 2, ch - 2); ctx.clip(); // card text and art stay inside
+    ctx.save(); ctx.beginPath(); ctx.rect(cx + 2, cy + 2, 60, ch - 4); ctx.clip();
+    ctx.translate(cx + 32 - (r.w / 2 + r.bx) * k, cy + ch / 2 - (r.h / 2 + r.by) * k); ctx.scale(k, k); r.f(r.e);
+    ctx.restore();
+    text(r.name, cy + 22, 12, '#ffb347', cx + 68, 'left');
+    text(r.note, cy + 38, 9.5, '#cde', cx + 68, 'left');
+    if (r.m) text('FROM MISSION ' + r.m, cy + 52, 9, '#ff8a80', cx + 68, 'left');
+    ctx.restore();
+  });
+  text('← ↑ → ↓ steer  SPACE torpedo  F laser  D decoys  E bubbles  S H-bomb  W drone', 358, 14);
+  text('Surfaced: SPACE = CIWS anti-air gun   //   D issued from mission 2, E and W from mission 3', 376, 11, '#bff');
+  if (paused) { text('GAME PAUSED', 408, 24, '#ffa31a'); text('ESC or ENTER to resume', 432, 16, '#7f7'); }
+  else {
+    text('ENTER to deploy', 408, 24, '#7f7');
+    text('S for the ARMORY', 432, 15, '#7ff', W / 2 - 70);
+    drawCoin(W / 2 + 40, 427); text(coins + ' coins', 432, 15, '#ffd700', W / 2 + 52, 'left');
+  }
+}
+
+function drawBrief() { // mission briefing: what is new in this mission
+  ctx.fillStyle = 'rgba(0,10,25,0.55)'; ctx.fillRect(-20, -20, W + 40, H + 40);
+  const news = NEWS[level] || [['!', 'HEAVIER RESISTANCE: more and faster enemies']];
+  const h = 112 + news.length * 30, y0 = H / 2 - h / 2;
+  panel(W / 2 - 250, y0, 500, h, '#ffa31a');
+  text('MISSION ' + level + ' BRIEFING', y0 + 38, 28, '#ffd700');
+  news.forEach(([k, line], i) => {
+    const y = y0 + 72 + i * 30, threat = k === '!';
+    ctx.fillStyle = threat ? '#5a1010' : '#103a1a'; ctx.fillRect(W / 2 - 220, y - 15, 24, 22);
+    ctx.strokeStyle = threat ? '#ff3a30' : '#3cff6a'; ctx.lineWidth = 1.5; ctx.strokeRect(W / 2 - 220, y - 15, 24, 22);
+    text(k, y + 2, 15, threat ? '#ff6a60' : '#7f7', W / 2 - 208);
+    text(line, y + 1, 15, threat ? '#ff8a80' : '#ffb347', W / 2 - 184, 'left');
+  });
+  text('ENTER to deploy   (auto in ' + Math.ceil(briefT / 60) + ' s)', y0 + h - 22, 16, '#7f7');
+}
+
 function drawShop() {
   panel(0, 0, W, H);
-  text('BOUTIQUE', 45, 34, '#ffd700');
-  drawCoin(W / 2 - 50, 70); text('   ' + coins + ' pieces', 76, 18, '#ffd700');
+  text('ARMORY', 45, 34, '#ffd700');
+  drawCoin(W / 2 - 50, 70); text('   ' + coins + ' coins', 76, 18, '#ffd700');
   SHIPS.forEach((s, i) => {
     const y = 95 + i * 58, sel = i === shopCursor;
     panel(120, y, W - 240, 50, sel ? '#fff' : 'rgba(255,255,255,0.2)');
@@ -1530,30 +2137,30 @@ function drawShop() {
     ctx.font = '14px ' + FONT; ctx.fillStyle = '#cde';
     ctx.fillText(s.desc, 200, y + 41);
     ctx.textAlign = 'right'; ctx.font = 'bold 18px ' + FONT;
-    if (i === shipIdx) { ctx.fillStyle = '#7f7'; ctx.fillText('EQUIPE', W - 135, y + 31); }
-    else if (owned.includes(i)) { ctx.fillStyle = '#fff'; ctx.fillText('ACHETE', W - 135, y + 31); }
-    else { ctx.fillStyle = coins >= s.price ? '#ffd700' : '#f66'; ctx.fillText(s.price + ' pieces', W - 135, y + 31); }
+    if (i === shipIdx) { ctx.fillStyle = '#7f7'; ctx.fillText('EQUIPPED', W - 135, y + 31); }
+    else if (owned.includes(i)) { ctx.fillStyle = '#fff'; ctx.fillText('OWNED', W - 135, y + 31); }
+    else { ctx.fillStyle = coins >= s.price ? '#ffd700' : '#f66'; ctx.fillText(s.price + ' coins', W - 135, y + 31); }
   });
   text(shopMsg, 405, 18, '#7ff');
-  text('Haut/Bas: choisir   ENTREE: acheter/equiper   ECHAP: retour', 435, 14, '#fff');
+  text('UP/DOWN: select   ENTER: buy/equip   ESC: back', 435, 14, '#fff');
 }
 
 function shopSelect() {
   const s = SHIPS[shopCursor];
-  if (owned.includes(shopCursor)) { shipIdx = shopCursor; shopMsg = s.name + ' equipe !'; sfx.power(); }
-  else if (coins >= s.price) { coins -= s.price; owned.push(shopCursor); shipIdx = shopCursor; shopMsg = 'Tu as achete ' + s.name + ' !'; sfx.win(); }
-  else { shopMsg = 'Pas assez de pieces ! Il en manque ' + (s.price - coins); tone(150, 0.3, 'square', 0.1); }
+  if (owned.includes(shopCursor)) { shipIdx = shopCursor; shopMsg = s.name + ' equipped'; sfx.power(); }
+  else if (coins >= s.price) { coins -= s.price; owned.push(shopCursor); shipIdx = shopCursor; shopMsg = s.name + ' acquired'; sfx.win(); }
+  else { shopMsg = 'Insufficient funds: ' + (s.price - coins) + ' coins short'; tone(150, 0.3, 'square', 0.1); }
   save();
 }
 
 function drawLaser(l) {
   const j = () => rnd(-1.2, 1.2), mx = (l.x1 + l.x2) / 2 + j(), my = (l.y1 + l.y2) / 2 + j(); // flickering, slightly electric
   ctx.lineCap = 'round';
-  for (const [w, col] of [[7, 'rgba(255,0,0,0.25)'], [3, '#ff2020'], [1, '#ffe0e0']]) {
+  for (const [w, col] of l.green ? [[7, 'rgba(0,255,80,0.25)'], [3, '#20ff60'], [1, '#e0ffe8']] : [[7, 'rgba(255,0,0,0.25)'], [3, '#ff2020'], [1, '#ffe0e0']]) {
     ctx.strokeStyle = col; ctx.lineWidth = w;
     ctx.beginPath(); ctx.moveTo(l.x1, l.y1); ctx.lineTo(mx, my); ctx.lineTo(l.x2, l.y2); ctx.stroke();
   }
-  ctx.fillStyle = 'rgba(255,80,80,0.5)'; ctx.beginPath(); ctx.arc(l.x1, l.y1, 3 + Math.random() * 2, 0, 7); ctx.fill();
+  ctx.fillStyle = l.green ? 'rgba(80,255,120,0.5)' : 'rgba(255,80,80,0.5)'; ctx.beginPath(); ctx.arc(l.x1, l.y1, 3 + Math.random() * 2, 0, 7); ctx.fill();
   if (l.hit) { ctx.fillStyle = 'rgba(255,220,220,0.8)'; ctx.beginPath(); ctx.arc(l.x2, l.y2, 4 + Math.random() * 3, 0, 7); ctx.fill(); }
 }
 
@@ -1563,31 +2170,30 @@ function draw() {
   ctx.setTransform(SCALE, 0, 0, SCALE, rnd(-sh, sh) * SCALE, rnd(-sh, sh) * SCALE);
   drawBackground();
 
-  if (state === 'title') {
-    panel(W / 2 - 230, 60, 460, 330);
-    text('BATAILLE SOUS LA MER', 115, 40, '#ffd700');
-    drawShip(W / 2 - 160, 150, ship().color, ship().double, 2);
-    drawMine({ x: W / 2 + 10, y: 145 }); drawOcto({ x: W / 2 + 60, y: 140, t: T * 0.04 });
-    drawShip(W / 2 + 110, 150, '#c62828', false, 1.5, true, '#6b7682');
-    text('← ↑ → ↓ nager   ESPACE torpille   F laser   D leurres   S bombe H', 230, 16);
-    text('En surface: ESPACE = canon anti-aerien (helicos, drones)', 252, 14, '#bff');
-    text('ENTREE pour jouer', 280, 24, '#7f7');
-    text('S pour la BOUTIQUE', 310, 18, '#7ff');
-    drawCoin(W / 2 - 45, 340); text('   ' + coins + ' pieces', 346, 18, '#ffd700');
-    return;
-  }
+  if (state === 'title') { drawHelp(false); return; }
   if (state === 'shop') { drawShop(); return; }
 
   // Coins and starfish
   for (const p of pickups) {
     if (p.type === 'coin') drawCoin(p.x + 7, p.y + 7, Math.cos(T * 0.1 + p.x * 0.05));
+    else if (p.type === 'life') { // life pickup: a pulsing heart in a glowing ring
+      const k = 1 + Math.sin(T * 0.15) * 0.12, cx = p.x + 9, cy = p.y + 6;
+      ctx.globalAlpha = 0.35; ctx.strokeStyle = '#ff8aa0'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cx, cy + 2, 11 * k, 0, 7); ctx.stroke(); ctx.globalAlpha = 1;
+      ctx.save(); ctx.translate(cx, cy); ctx.scale(1.5 * k, 1.5 * k); drawHeart(0, 0); ctx.restore();
+    }
     else { drawStarfish(p.x + 10, p.y + 10, 12, T * 0.05, T % 30 < 15 ? '#ffb347' : '#ff7f50'); text('x2', p.y + 14, 10, '#fff', p.x + 10); }
   }
   for (const e of enemies) drawEnemy(e); // not forEach: it would pass the index as the rotation
-  eShots.forEach(s => s.type === 'torp' ? drawTorpedo(s, true) : s.type === 'shell' ? drawShell(s) : drawCharge(s));
+  eShots.forEach(s => s.type === 'torp' ? drawTorpedo(s, true) : s.type === 'sam' || s.type === 'atr' ? drawSAM(s) : s.type === 'cm' ? drawCM(s) : s.type === 'asm' ? drawASM(s) : drawCharge(s));
   decoys.forEach(d => { ctx.globalAlpha = Math.min(1, d.life / 40); drawDecoy(d); ctx.globalAlpha = 1; });
   torps.forEach(t => drawTorpedo(t, false));
   missiles.forEach(drawHBomb);
+  if (droneRocket) { // drone rocket: dark gray canister, green band
+    const r = droneRocket; ctx.fillStyle = '#2b2f33'; ctx.fillRect(r.x, r.y, 5, 11);
+    ctx.beginPath(); ctx.moveTo(r.x, r.y); ctx.lineTo(r.x + 2.5, r.y - 4); ctx.lineTo(r.x + 5, r.y); ctx.fill();
+    ctx.fillStyle = '#3cff6a'; ctx.fillRect(r.x, r.y + 3, 5, 1.2);
+  }
+  if (myDrone) drawDrone(myDrone);
   if (laser) drawLaser(laser);
 
   // Player sub tilts with its movement, blinks when hurt
@@ -1596,12 +2202,24 @@ function draw() {
     if (player.ciws > 0) drawCIWS(player.x + 80.6, player.y + 23.4, player.ciws, player.ciwsA - player.vy * 0.1); // drawn first: it rises out of the hull
     drawShip(player.x, player.y, ship().color, hasDouble(), 2.6);
     if (player.ciws > 0) { ctx.fillStyle = '#050607'; ctx.fillRect(player.x + 74, player.y + 23.2, 13, 1); } // open hatch
+    drawWarnLight(player.x + 66.3, player.y + 17.5, player.threat);
     ctx.restore();
   }
   if (bullets.length) { // CIWS tracers
     ctx.strokeStyle = '#ffe680'; ctx.lineWidth = 1.2; ctx.beginPath();
     for (const b of bullets) { ctx.moveTo(b.x, b.y); ctx.lineTo(b.x - b.vx * 0.9, b.y - b.vy * 0.9); }
     ctx.stroke();
+  }
+  const lk = player.lock;
+  if (lk && !lk.dead) { // target lock: orange corner brackets around the closest enemy sub or ship
+    const x0 = lk.x - 5, y0 = lk.y - 5, x1 = lk.x + lk.w + 5, y1 = lk.y + lk.h + 5, k = 8;
+    ctx.strokeStyle = '#ff9a1a'; ctx.lineWidth = 1.5; ctx.globalAlpha = hbombs > 0 && !player.jam ? 1 : 0.4;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0 + k); ctx.lineTo(x0, y0); ctx.lineTo(x0 + k, y0); ctx.moveTo(x1 - k, y0); ctx.lineTo(x1, y0); ctx.lineTo(x1, y0 + k);
+    ctx.moveTo(x1, y1 - k); ctx.lineTo(x1, y1); ctx.lineTo(x1 - k, y1); ctx.moveTo(x0 + k, y1); ctx.lineTo(x0, y1); ctx.lineTo(x0, y1 - k);
+    ctx.stroke();
+    ctx.globalAlpha = 0.25 + 0.15 * Math.sin(T * 0.2); ctx.strokeRect(x0, y0, x1 - x0, y1 - y0); ctx.globalAlpha = 1;
+    text('TARGET', y0 - 4, 9, '#ff9a1a', lk.x + lk.w / 2);
   }
   const tg = player.ciwsT;
   if (player.ciws === 1 && tg && !tg.dead) { // radar lock brackets
@@ -1626,25 +2244,55 @@ function draw() {
     drawHBomb({ x: 25 + i * 10, y: 56 });
     ctx.globalAlpha = 1;
   }
+  if (level >= UNLOCK.decoys) {
   text('D', 84, 13, '#fff', 10, 'left');
   ctx.globalAlpha = decoyCool ? 0.35 : 1; drawDecoy({ x: 30, y: 80, vy: 0 }); drawDecoy({ x: 38, y: 82, vy: 1 }); ctx.globalAlpha = 1;
   ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(48, 77, 40, 5); // reload bar
   ctx.fillStyle = decoyCool ? '#ffb300' : '#7CFC00'; ctx.fillRect(48, 77, 40 * (1 - decoyCool / DECOY_COOL), 5);
-  text('prochain allie: ' + (10 - kills % 10), 44, 12, '#fff', W - 10, 'right');
+  }
+  if (level >= UNLOCK.drone) {
+  text('W', 120, 13, '#fff', 10, 'left');
+  ctx.save(); ctx.translate(26, 112); ctx.scale(0.7, 0.7); ctx.globalAlpha = droneAmmo > 0 ? (player.jam ? 0.4 : 1) : 0.25;
+  drawDrone({ x: 0, y: 0, mine: true }); ctx.restore(); ctx.globalAlpha = 1;
+  }
+  if (level >= UNLOCK.bubbles) {
+  text('E', 102, 13, '#fff', 10, 'left');
+  ctx.strokeStyle = '#dff6ff'; ctx.lineWidth = 1.2;
+  for (let i = 0; i < BUBBLE_AMMO; i++) { // bubble screen charges
+    ctx.globalAlpha = i < bubbleAmmo ? (bubbleCool && i === bubbleAmmo - 1 ? 0.5 : 1) : 0.2;
+    ctx.beginPath(); ctx.arc(30 + i * 11, 98, 4, 0, 7); ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.fillRect(28 + i * 11, 95.5, 1.5, 1.5);
+  }
+  ctx.globalAlpha = 1;
+  }
+  text('ally in: ' + (10 - kills % 10) + ' kills', 44, 12, '#fff', W - 10, 'right');
   // Level progress bar
   const bx = W / 2 - 120, prog = Math.min(1, dist / levelLen);
   ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(bx, 10, 240, 8);
   ctx.fillStyle = '#7f7'; ctx.fillRect(bx, 10, 240 * prog, 8);
   drawShip(bx + 240 * prog - 10, 7, ship().color, false, 0.55);
   ctx.fillStyle = '#7a4a1e'; ctx.fillRect(bx + 244, 8, 12, 10); ctx.fillStyle = '#ffd700'; ctx.fillRect(bx + 244, 11, 12, 2);
-  text('NIVEAU ' + level, 36, 14, '#bff');
-  if (player.jam > 0) text('ARMES EN PANNE  ' + Math.ceil(player.jam / 60) + 's', 74, 14, T % 30 < 15 ? '#7df9ff' : '#fff');
-  if (player.double > 0 && !ship().double) text('RECHARGE x2  ' + Math.ceil(player.double / 60) + 's', 54, 14, '#ffd700');
+  text('MISSION ' + level, 36, 14, '#bff');
+  if (player.jam > 0) text('WEAPONS OFFLINE  ' + Math.ceil(player.jam / 60) + 's', 74, 14, T % 30 < 15 ? '#7df9ff' : '#fff');
+  if (player.double > 0 && !ship().double) text('RAPID RELOAD  ' + Math.ceil(player.double / 60) + 's', 54, 14, '#ffd700');
   if (whiteFlash > 0) { ctx.fillStyle = 'rgba(255,255,255,' + whiteFlash + ')'; ctx.fillRect(-20, -20, W + 40, H + 40); }
-  if (flash) text(flash.msg, H / 2 - 40, 28, flash.t % 20 < 10 ? '#ffd700' : '#fff');
+  if (dashA > 0.02) { // messages on a dark dashboard strip at the bottom, dark red like an instrument display
+    ctx.font = `bold 15px ${FONT}`;
+    const a = dashA * dashA * (3 - 2 * dashA), bw = Math.max(240, ctx.measureText(dashMsg).width + 56), bh = 26;
+    const bx = W / 2 - bw / 2, by = H - bh - 8 + (1 - a) * 18;
+    ctx.globalAlpha = a;
+    ctx.fillStyle = 'rgba(12,6,6,0.88)'; ctx.fillRect(bx, by, bw, bh);
+    ctx.strokeStyle = dashRed ? '#4a1414' : '#4a2e10'; ctx.lineWidth = 1.5; ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
+    ctx.fillStyle = 'rgba(255,255,255,0.05)'; ctx.fillRect(bx + 2, by + 2, bw - 4, 2); // glass reflection
+    ctx.fillStyle = dashRed ? (T % 16 < 8 ? '#ff3a30' : '#5a1010') : (T % 30 < 15 ? '#ff9a1a' : '#5a3410'); ctx.beginPath(); ctx.arc(bx + 14, by + bh / 2, 3, 0, 7); ctx.fill(); // status LED
+    ctx.textAlign = 'center'; ctx.fillStyle = dashRed ? '#c8231e' : '#e07a1a'; ctx.fillText(dashMsg, W / 2 + 6, by + 18);
+    ctx.globalAlpha = 1;
+  }
 
-  if (state === 'over') { panel(0, H / 2 - 45, W, 100); text('PERDU ! niveau ' + level, H / 2, 40, '#ff6b6b'); text('ENTREE pour rejouer    S: boutique', H / 2 + 38, 18); }
-  if (state === 'next') { panel(0, H / 2 - 45, W, 100); text('NIVEAU ' + level + ' TERMINE !', H / 2, 40, '#7f7'); text('Attention, le prochain est plus dur...', H / 2 + 38, 18, '#ffd700'); }
+  if (state === 'pause') drawHelp(true);
+  if (state === 'brief') drawBrief();
+  if (state === 'over') { panel(0, H / 2 - 45, W, 100); text('SUB LOST - MISSION ' + level + ' FAILED', H / 2, 36, '#ff6b6b'); text('ENTER: redeploy    S: armory', H / 2 + 38, 18); }
+  if (state === 'next') { panel(0, H / 2 - 45, W, 100); text('MISSION ' + level + ' ACCOMPLISHED', H / 2, 40, '#7f7'); text('Stand by: next mission, heavier resistance...', H / 2 + 38, 18, '#ffd700'); }
 }
 
 // Game logic runs at a fixed 60 steps/second; drawing happens once per screen frame.
@@ -1660,7 +2308,7 @@ function loop(now) {
 }
 
 // Action keys by physical position (e.code), so they sit under the left hand on AZERTY and QWERTY alike:
-// S bomb, D decoys, F laser, SPACE torpedo; the arrows stay for the right hand
+// S bomb, D decoys, E bubble screen, F laser, SPACE torpedo (W air drone goes by letter); the arrows stay for the right hand
 addEventListener('keydown', e => {
   keys[e.code] = true;
   if ([' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) e.preventDefault();
@@ -1672,9 +2320,14 @@ addEventListener('keydown', e => {
     if (e.key === 'Escape' || e.code === 'KeyS') state = 'title';
     return;
   }
-  if (state === 'play' && player.jam && !e.repeat && ['Space', 'KeyF', 'KeyS'].includes(e.code)) sfx.denied();
+  if (e.key === 'Escape' && !e.repeat && (state === 'play' || state === 'pause')) { state = state === 'play' ? 'pause' : 'play'; for (const k in keys) keys[k] = false; tone(state === 'pause' ? 600 : 900, 0.08, 'sine', 0.05); return; }
+  if (state === 'pause') { if (e.key === 'Enter') state = 'play'; return; }
+  if (state === 'brief') { if (e.key === 'Enter') state = 'play'; return; }
+  if (state === 'play' && player.jam && !e.repeat && (['Space', 'KeyF', 'KeyS'].includes(e.code) || e.key.toLowerCase() === 'w')) sfx.denied();
+  if (e.key.toLowerCase() === 'w' && state === 'play') { if (!e.repeat) launchDrone(); return; } // by letter: W is bottom left on AZERTY
   if (e.code === 'KeyS' && state === 'play') { if (!e.repeat) fireHBomb(); return; }
   if (e.code === 'KeyD' && state === 'play') { if (!e.repeat) throwDecoys(); return; }
+  if (e.code === 'KeyE' && state === 'play') { if (!e.repeat) bubbleBurst(); return; }
   if (e.code === 'KeyS' && (state === 'title' || state === 'over')) { state = 'shop'; shopCursor = shipIdx; shopMsg = ''; return; }
   if (e.key === 'Enter' && (state === 'title' || state === 'over')) { reset(); state = 'play'; }
 });
