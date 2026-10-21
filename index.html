@@ -275,6 +275,43 @@ function music() {
   musicStep++;
 }
 
+// Boss theme: swashbuckler style (original tune), 6/8 in D minor. Driving cello eighths, big drum and brass hits on 1 and 4
+const BM_ROOT = [73.42, 73.42, 58.27, 65.41, 73.42, 49, 55, 55]; // D D Bb C D G A A, one per bar
+const DM = [293.66, 349.23, 440], BB = [233.08, 293.66, 349.23], CM = [261.63, 329.63, 392], GM = [196, 233.08, 293.66], AM = [220, 277.18, 329.63];
+const BM_CHORD = [DM, DM, BB, CM, DM, GM, AM, AM];
+const BM_LEAD = [ // [eighth, Hz, length in eighths] over 8 bars of 6 eighths
+  [0, 587.33, 3], [3, 698.46, 2], [5, 659.25, 1], [6, 587.33, 2], [8, 440, 1], [9, 587.33, 3],
+  [12, 698.46, 3], [15, 932.33, 3], [18, 783.99, 2], [20, 698.46, 1], [21, 659.25, 3],
+  [24, 698.46, 2], [26, 659.25, 1], [27, 587.33, 3], [30, 466.16, 2], [32, 587.33, 1], [33, 783.99, 3],
+  [36, 659.25, 2], [38, 554.37, 1], [39, 440, 3], [42, 554.37, 3], [45, 659.25, 2], [47, 880, 1]];
+const BM_STEP = 11; // 60 Hz steps per eighth note (dotted quarter ~110 BPM)
+const BM_VOL = 0.4; // music bus volume: stays under the sound effects
+let mbus = null, bossStep = 0;
+function syn(t, f, dur, type, vol, cut, att = 0.01, detune = 0) { // filtered synth voice on the music bus
+  const o = ac.createOscillator(), fl = ac.createBiquadFilter(), g = ac.createGain();
+  o.type = type; o.frequency.value = f; o.detune.value = detune; fl.type = 'lowpass'; fl.frequency.value = cut;
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + att); g.gain.setValueAtTime(vol, t + dur * 0.6); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(fl).connect(g).connect(mbus); o.start(t); o.stop(t + dur + 0.05);
+  o.onended = () => { o.disconnect(); fl.disconnect(); g.disconnect(); };
+}
+function bossMusic() {
+  if (--musicTimer > 0) return;
+  musicTimer = BM_STEP;
+  if (!mbus) { mbus = ac.createGain(); mbus.gain.value = BM_VOL; mbus.connect(master); const s = ac.createGain(); s.gain.value = 0.35; mbus.connect(s).connect(verb); }
+  const t = ac.currentTime + 0.02, e8 = BM_STEP / 60, i = bossStep % 6, bar = Math.floor(bossStep / 6) % 8, k = bossStep % 48;
+  const big = i === 0 || i === 3, fill = bar === 7 && i >= 3;
+  syn(t, BM_ROOT[bar] * 2, e8 * 0.85, 'sawtooth', big ? 0.15 : 0.1, 600, 0.005);                     // cello ostinato: every eighth
+  if (i === 0) syn(t, BM_ROOT[bar], e8 * 5.5, 'sawtooth', 0.12, 260, 0.02);                          // low strings under each bar
+  if (big || fill) os(mbus, t, 0.4, 'sine', 120, 38, i === 0 ? 0.55 : 0.4);                           // big drum on 1 and 4, roll at the end
+  if (i === 3 || fill) nz(mbus, t, 0.25, 0.2, 'bandpass', 1400, 500, 0.8);                            // snare crack
+  if (i === 0) nz(mbus, t, 0.6, 0.06, 'highpass', 6000, 3000);                                        // cymbal wash
+  if (i === 0 || (i === 3 && (bar === 3 || bar === 7))) for (const f of BM_CHORD[bar]) { // brass hits
+    syn(t, f, e8 * 2.5, 'sawtooth', 0.04, 1900, 0.008, -7); syn(t, f, e8 * 2.5, 'sawtooth', 0.04, 1900, 0.008, 7);
+  }
+  for (const [st, f, n] of BM_LEAD) if (st === k) { syn(t, f, e8 * n, 'sawtooth', 0.045, 2600, 0.03, -5); syn(t, f * 2, e8 * n, 'triangle', 0.025, 3000, 0.03, 5); } // strings lead, octave doubled
+  bossStep++;
+}
+
 // ---------- Shop ----------
 const SHIPS = [
   { name: 'Standard',     price: 0,   color: '#e8e8e8', speed: 3.5, cool: 15, lives: 5, desc: 'Standard-issue attack sub' },
@@ -324,6 +361,7 @@ function startLevel() {
   decoys = []; decoyCool = 0;
   bubbleAmmo = BUBBLE_AMMO; bubbleCool = 0; // bubble screen refilled every level
   droneAmmo = 1; myDrone = droneRocket = null; // one air drone per level
+  boss = null; bossDone = false;
   flash = { msg: 'MISSION ' + level + ' - WEAPONS FREE', t: 120 };
   if (level >= LIFE_LEVEL && lives < 3) { lives++; flash = { msg: 'MISSION ' + level + ' - RESUPPLY: +1 LIFE', t: 120 }; } // hard missions: a helping hand
   heartsLeft = level >= LIFE_LEVEL ? LIFE_DROPS : 0; nextHeart = levelLen * 0.3; // life pickups, at 30% and 65% of the mission
@@ -391,7 +429,14 @@ function megaBoom(x, y, victim) {
   particles.push({ kind: 'ring', x, y, life: 35, max: 35, r: BLAST * 1.3 });
   particles.push({ kind: 'ring', x, y, life: 25, max: 25, r: BLAST * 0.7 });
   shake = 20; whiteFlash = 0.8; sfx.mega(x, y);
-  if (victim && !victim.dead) killEnemy(victim);
+  if (victim && !victim.dead) {
+    if (victim.type !== 'boss') killEnemy(victim);
+    else { // the boss takes a few hits' worth, it does not die at once
+      victim.hp -= BOSS_HBOMB; victim.flash = 10;
+      for (let i = 0; i < 3; i++) addMark(victim, victim.x + rnd(0, victim.w * 0.5));
+      if (victim.hp <= 0) killEnemy(victim);
+    }
+  }
 }
 
 // Decoys (D): a pair of noisy sonar lures, one thrown up and one down. Belugas, enemy torpedoes,
@@ -410,8 +455,9 @@ const NEWS = {
       ['!', 'NEW THREAT: COMBAT SWIMMERS from ships and helos'], ['!', 'NEW THREAT: ELECTRIC EELS jam your weapons']],
   3: [['E', 'BUBBLE SCREEN ISSUED: blasts close threats away'], ['W', 'AIR DRONE ISSUED: kills drones, rams helos'],
       ['!', 'ENEMY SUBS now deploy decoys']],
+  4: [['!', 'HEAVIER RESISTANCE: more and faster enemies'], ['!', 'BOSS: TYPHOON-CLASS SUB at the end of the mission']],
   5: [['+', 'RESUPPLY: +1 life at start when under 3 lives'], ['+', '2 MEDEVAC CRATES per mission: +1 life each'],
-      ['!', 'HEAVIER RESISTANCE: more and faster enemies']],
+      ['!', 'HEAVIER RESISTANCE: more and faster enemies'], ['!', 'BOSS: BELGOROD-CLASS SUB, launches swimmers']],
 };
 const BRIEF_TIME = 300; // 5 s
 let briefT = 0;
@@ -460,6 +506,7 @@ function bubbleBurst() {
       const v = Math.hypot(s.vx, s.vy || 0), h = Math.atan2(dy, dx);
       s.vx = Math.cos(h) * v; s.vy = Math.sin(h) * v; s.a = h - Math.PI;
     } else if (s.type === 'charge') { s.dead = true; sfx.pop(s.x, s.y); score += 5; }
+    else if (s.type === 'brk') { s.dead = true; boom(s.x + 6, s.y + 2, false); score += 5; }
   }
 }
 
@@ -582,6 +629,106 @@ function spawnEnemy() {
   }
 }
 
+// Boss at the end of mission 4: a Typhoon-class sub with 10 hp. The mission only ends when it is sunk.
+// It roams fast on the right side, fires 2 homing Shkval rocket-torpedoes every 5 s (sail and keel),
+// lasers the sub when it comes close, and defeats 70% of our torpedoes and H-bombs (decoy or bubble wall)
+// One boss per mission. speed: max px/step (our sub: 1.75), save: chance to defeat each torpedo / H-bomb, swim: steps between swimmer launches
+const BOSSES = {
+  4: { name: 'TYPHOON', hp: 10, speed: 2, save: 0.7, hull: '#3b4249' },
+  5: { name: 'BELGOROD', hp: 20, speed: 2.6, save: 0.8, swim: 360, hull: '#272c31' },
+};
+const BOSS_HBOMB = 3, BOSS_DIVERS = 3; // hp an H-bomb takes, max swimmers out at once
+const BOSS_FIRE = 300, BOSS_RKT_V = 3, BOSS_RKT_TURN = 0.035;      // steps between salvos, rocket px/step and rad/step
+const BOSS_LASER_RANGE = 170, BOSS_LZ_AIM = 40, BOSS_LZ_LOCK = 24, BOSS_LZ_BEAM = 20, BOSS_LZ_COOL = 120; // px, steps
+const BOSS_CM_RANGE = 260, BOSS_BCL_R = 30;       // reaction range, bubble wall radius
+let boss = null, bossDone = false, bossEnd = 0;
+function spawnBoss() {
+  const c = BOSSES[level];
+  boss = { type: 'boss', ...c, max: c.hp, swimT: 200, x: W + 20, y: H / 2 - 20, w: 180, h: 28, pts: c.hp * 50, vx: 0, mvx: 0, mvy: 0, gx: W - 230, gy: H / 2 - 20, wp: 200, fire: 150, lzCool: 90, cmT: 0 };
+  enemies.push(boss); bossStep = 0; musicTimer = 0; // the theme starts on its first beat
+  flash = { msg: c.name + '-CLASS SUB INBOUND - SINK IT', t: 150, danger: true };
+  tone(55, 2.5, 'sawtooth', 0.08, 42); setTimeout(() => tone(55, 2, 'sawtooth', 0.06, 42), 900); // deep hull groan
+}
+function bossDefend(e, w, x, y) { // w: our torpedo or H-bomb, (x, y): where to put the bubble wall
+  w.foiled = true; e.cmT = 20;
+  if (Math.random() < 0.5) { // decoy: the weapon turns onto it
+    const d = { type: 'cm', x: e.x + 30, y: e.y + 12, w: 6, h: 6, vx: -1.2, vy: (w.y < e.y + 12 ? -1 : 1) * 2.6, life: 300 };
+    eShots.push(d); w.lure = d;
+    noise(0.12, 0.05); tone(2400, 0.1, 'sine', 0.06); setTimeout(() => tone(2400, 0.1, 'sine', 0.06), 110);
+    if (!(flash && flash.danger)) flash = { msg: 'ENEMY DECOY DEPLOYED', t: 50 };
+  } else { // bubble wall across its path: sets the weapon off early
+    eShots.push({ type: 'bcl', x, y, w: 0, h: 0, r: 0, life: 150 });
+    sfx.bubbles(x);
+    for (let i = 0; i < 30; i++) particles.push({ kind: 'bubble', x: e.x + rnd(0, 20), y: e.y + 14 + rnd(-8, 8), vx: (x - e.x) / 25 + rnd(-0.5, 0.5), vy: (y - e.y - 14) / 25 + rnd(-0.5, 0.5), drag: 0.93, life: rnd(40, 60), max: 60, size: rnd(1, 3) });
+    if (!(flash && flash.danger)) flash = { msg: 'ENEMY BUBBLE SCREEN', t: 50 };
+  }
+}
+function updateBoss(e) {
+  e.x += scroll; // holds its place on screen (the shared loop scrolls everything)
+  const on = e.x < W - e.w * 0.6; // fully in action once mostly on screen
+  // Roams between random waypoints on the right half, faster than our sub
+  if (--e.wp <= 0 || Math.hypot(e.gx - e.x, e.gy - e.y) < 12) { e.gx = rnd(W * 0.5, W - e.w - 10); e.gy = rnd(SURFACE + 40, H - 150); e.wp = rnd(90, 180); }
+  const dx = e.gx - e.x, dy = e.gy - e.y, d = Math.hypot(dx, dy) || 1, v = Math.min(e.speed, d * 0.04);
+  e.mvx += (dx / d * v - e.mvx) * 0.06; e.mvy += (dy / d * v - e.mvy) * 0.06;
+  e.x += e.mvx; e.y = Math.max(SURFACE + 32, Math.min(groundY(camX + e.x + e.w / 2) - e.h - 8, e.y + e.mvy));
+  if (T % 3 === 0) particles.push({ kind: 'bubble', x: e.x + 198 + rnd(0, 6), y: e.y + 14 + rnd(-4, 4), vx: rnd(0.4, 1.2), vy: rnd(-0.5, 0.1), life: 45, max: 45, size: rnd(1.5, 4) }); // pump-jet wash
+  // Shkval salvo: one rocket out of the sail, one out of the keel, both home on the sub
+  if (on && --e.fire <= 0) {
+    e.fire = BOSS_FIRE;
+    for (const dir of [-1, 1])
+      eShots.push({ type: 'brk', x: e.x + (dir < 0 ? 50 : 100) - 6, y: (dir < 0 ? e.y - 17 : e.y + 27) - 2, w: 12, h: 4, a: dir * (Math.PI / 2 + 0.5), v: 1, boost: 18, life: 420 });
+    sfx.launch(e.x + 75);
+    if (!(flash && flash.danger)) flash = { msg: 'SHKVAL LAUNCH - 2 ROCKETS INBOUND', t: 70, danger: true };
+  }
+  // Combat swimmers out of the lockout hatch behind the sail (mission 5 boss): they hunt the sub like the others
+  if (e.swim && on && --e.swimT <= 0) {
+    e.swimT = e.swim;
+    if (enemies.filter(d => d.type === 'diver' && !d.dead).length < BOSS_DIVERS) {
+      for (const dir of [-1, 1]) enemies.push({ type: 'diver', x: e.x + 80, y: e.y + (dir < 0 ? -6 : 22), w: 44, h: 20, hp: 1, pts: 30, t: 0, vx: 0, svx: 1.5, vy: dir * 1.2, face: -1, life: 720, bomb: true });
+      noise(0.25, 0.06); tone(300, 0.3, 'sine', 0.06, 180); // hatch opens: air rush
+      for (let i = 0; i < 12; i++) particles.push({ kind: 'bubble', x: e.x + 100 + rnd(-6, 6), y: e.y + 8 + rnd(-6, 6), vx: rnd(-0.5, 0.5), vy: rnd(-1.2, -0.3), life: 45, max: 45, size: rnd(1, 3) });
+      if (!(flash && flash.danger)) flash = { msg: 'COMBAT SWIMMERS DEPLOYED', t: 70, danger: true };
+    }
+  }
+  // Bow laser when the sub comes close: tracks, locks (time to dodge), fires
+  const bx = e.x - 2, by = e.y + 14, px = player.x + 46, py = player.y + 24;
+  if (e.lzCool > 0) e.lzCool--;
+  e.beam = null;
+  if (e.lzBeam > 0) {
+    const ldx = e.ltx - bx, ldy = e.lty - by, ld = Math.hypot(ldx, ldy) || 1, c = ldx / ld, sn = ldy / ld, pb = playerBox();
+    let x2 = bx, y2 = by;
+    for (let s = 0; s < BOSS_LASER_RANGE + 40; s += 3) {
+      x2 = bx + c * s; y2 = by + sn * s;
+      if (y2 < SURFACE || y2 > groundY(camX + x2) || x2 < -20) break;
+      if (!e.lzHit && x2 > pb.x - 2 && x2 < pb.x + pb.w + 2 && y2 > pb.y - 2 && y2 < pb.y + pb.h + 2) { e.lzHit = true; damagePlayer(); }
+      for (let i = allies - 1; i >= 0; i--) { const ab = allyBox(i); if (x2 > ab.x && x2 < ab.x + ab.w && y2 > ab.y && y2 < ab.y + ab.h) { allies--; boom(ab.x + 28, ab.y + 12, false); } }
+    }
+    e.beam = { x1: bx, y1: by, x2, y2, hit: true };
+    if (--e.lzBeam === 0) e.lzCool = BOSS_LZ_COOL;
+  } else if (e.lzAim > 0) {
+    e.lzAim--;
+    if (e.lzAim >= BOSS_LZ_LOCK) { e.ltx = px; e.lty = py; } // tracks, then locks
+    if (e.lzAim % 6 === 0) tone(1600, 0.04, 'square', 0.05);
+    if (e.lzAim === 0) { e.lzBeam = BOSS_LZ_BEAM; e.lzHit = false; tone(1800, 0.35, 'sawtooth', 0.09, 400); }
+  } else if (!e.lzCool && on && Math.hypot(px - bx, py - by) < BOSS_LASER_RANGE) {
+    e.lzAim = BOSS_LZ_AIM; e.ltx = px; e.lty = py;
+    flash = { msg: 'LASER LOCK - BREAK AWAY', t: 50, danger: true };
+  }
+  // Defense: each torpedo or H-bomb coming at it gets one roll (70%): decoy or bubble wall
+  if (e.cmT > 0) e.cmT--;
+  if (!on || e.cmT > 0) return;
+  for (const t of torps) {
+    const gap = e.x - t.x - t.w, ty = t.y + t.h / 2 + Math.tan(t.a) * Math.max(0, gap);
+    if (t.dead || t.foiled || gap < 40 || gap > BOSS_CM_RANGE || ty < e.y - 20 || ty > e.y + e.h + 10) continue;
+    if (t.boss ??= Math.random() < e.save) { bossDefend(e, t, t.x + t.w + gap * 0.5, t.y + t.h / 2 + Math.tan(t.a) * gap * 0.5); return; }
+  }
+  for (const m of missiles) {
+    const mx = m.x + 2.5, my = m.y + 7, cx = e.x + e.w / 2, cy = e.y + e.h / 2, md = Math.hypot(cx - mx, cy - my);
+    if (m.dead || m.foiled || m.target !== e || m.t <= 20 || my < SURFACE || md > BOSS_CM_RANGE || md < 110) continue;
+    if (m.boss ??= Math.random() < e.save) { bossDefend(e, m, mx + (cx - mx) * 0.4, my + (cy - my) * 0.4); return; }
+  }
+}
+
 // Electric eel: touching the sub shocks it, the weapons (torpedoes, laser, H-bomb) are down for 10 s.
 // Decoys still work. Each eel discharges once, then dives away.
 const JAM_TIME = 600;
@@ -677,7 +824,13 @@ function damagePlayer() {
 
 function killEnemy(e, safe) { // safe: the swimmer's bomb can't hurt the sub (bubble screen)
   e.dead = true; boom(e.x + e.w / 2, e.y + e.h / 2);
-  if (['sub', 'boat', 'heli', 'drone'].includes(e.type)) { // burning wreck sinks (or falls into the sea)
+  if (e.type === 'boss') { // sunk: huge blast, its rockets go dead, the mission ends a bit later
+    bossDone = true; bossEnd = 150; boss = null; shake = 20; whiteFlash = 0.8; sfx.mega(e.x + e.w / 2, e.y + e.h / 2);
+    for (let i = 0; i < 4; i++) boom(e.x + rnd(10, e.w - 10), e.y + rnd(0, e.h));
+    for (const s of eShots) if (s.type === 'brk') { s.dead = true; boom(s.x + 6, s.y + 2, false); }
+    flash = { msg: 'SPLASH ONE ' + e.name + ' - BOSS DOWN', t: 150 };
+  }
+  if (['sub', 'boat', 'heli', 'drone', 'boss'].includes(e.type)) { // burning wreck sinks (or falls into the sea)
     const w = { ...e, flash: 0, marks: [...(e.marks || [])] };
     for (let i = 0; i < 3; i++) addMark(w, w.x + rnd(0, w.w * 0.5));
     particles.push({ kind: 'wreck', e: w, x: 0, y: 0, vy: 0.1, rot: 0, spin: rnd(0.004, 0.01) * (Math.random() < 0.5 ? -1 : 1), air: e.type === 'heli' || e.type === 'drone', life: 220, max: 220 });
@@ -725,7 +878,7 @@ function update() {
   T++;
   for (const f of bgFish) { if (state === 'play' || state === 'title') f.x -= f.s; if (f.x < -60) { f.x = W + 60; f.y = rnd(110, H - 150); } }
   if (particles.length > 500) particles.splice(0, particles.length - 500); // safety cap
-  if (ac && state !== 'shop') music();
+  if (ac && state !== 'shop') boss ? bossMusic() : music(); // boss fight: its own theme
   if (ac && state === 'play' && T % 420 === 0) { tone(1500, 1.5, 'sine', 0.04); setTimeout(() => tone(1500, 1.2, 'sine', 0.015), 500); } // sonar ping + echo
   if (shake > 0) shake *= 0.85;
   particles.forEach(p => {
@@ -838,7 +991,7 @@ function update() {
       if (y2 < SURFACE || y2 > groundY(camX + x2)) break;
       target = enemies.find(e => !e.dead && x2 > e.x - 4 && x2 < e.x + e.w + 4 && y2 > e.y - 4 && y2 < e.y + e.h + 4); // beam is a few px wide
       if (target) break;
-      const charge = eShots.find(sh => !sh.dead && sh.type === 'charge' && x2 > sh.x - 4 && x2 < sh.x + sh.w + 4 && y2 > sh.y - 4 && y2 < sh.y + sh.h + 4);
+      const charge = eShots.find(sh => !sh.dead && (sh.type === 'charge' || sh.type === 'brk') && x2 > sh.x - 4 && x2 < sh.x + sh.w + 4 && y2 > sh.y - 4 && y2 < sh.y + sh.h + 4);
       if (charge) { charge.dead = true; boom(charge.x + 5, charge.y + 7, false); sfx.hit(); score += 5; break; } // depth charges pop instantly
     }
     laser = { x1, y1, x2, y2, hit: d <= LASER_RANGE };
@@ -1007,6 +1160,7 @@ function update() {
       eShots.push({ type: 'torp', x: sx - 8, y: sy - 2.5, w: 16, h: 5, vx: -Math.cos(a) * v, vy: Math.sin(a) * v, a: -a });
       e.fire = Math.max(180, 400 - level * 30) * rnd(0.8, 1.2);
     }
+    if (e.type === 'boss') updateBoss(e);
     if (e.type === 'heli' && e.parked) { // sits on its frigate, then lifts off
       const b = e.parked;
       if (!b.dead) { e.x = b.x + 76; e.y = b.y - 9; }
@@ -1096,7 +1250,7 @@ function update() {
       }
     }
     if (e.type !== 'boat' && !e.dead && hit(e, playerBox())) {
-      if (e.type === 'rock') damagePlayer(); else if (e.type === 'beluga' || e.type === 'diver') e.fuse = 1; else if (e.type === 'eel') { if (!e.spent) shockPlayer(e); } else { e.dead = true; boom(e.x + e.w / 2, e.y + e.h / 2); damagePlayer(); }
+      if (e.type === 'rock') damagePlayer(); else if (e.type === 'boss') { damagePlayer(); player.vx = -2; } else if (e.type === 'beluga' || e.type === 'diver') e.fuse = 1; else if (e.type === 'eel') { if (!e.spent) shockPlayer(e); } else { e.dead = true; boom(e.x + e.w / 2, e.y + e.h / 2); damagePlayer(); }
     }
     for (let i = allies - 1; i >= 0; i--) if (!e.dead && e.type !== 'boat' && e.type !== 'eel' && hit(e, allyBox(i))) { allies--; boom(allyBox(i).x + 28, allyBox(i).y + 12, false); }
   }
@@ -1149,6 +1303,26 @@ function update() {
       }
       if (s.y < -40) s.dead = true;
     }
+    else if (s.type === 'brk') { // boss Shkval: supercavitating rocket-torpedo, homes on the sub (or a decoy)
+      const cx = s.x + s.w / 2, cy = s.y + s.h / 2;
+      if (s.boost > 0) { if (--s.boost === 0) sfx.motor(cx, true); } // ejected, then the rocket lights
+      else {
+        const d = decoyNear(cx, cy), gx = d ? d.x : player.x + 46, gy = d ? d.y : player.y + 24;
+        let diff = Math.atan2(gy - cy, gx - cx) - s.a; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        s.a += Math.max(-BOSS_RKT_TURN, Math.min(BOSS_RKT_TURN, diff)); s.v = Math.min(BOSS_RKT_V, s.v + 0.06);
+        if (d && Math.hypot(d.x - cx, d.y - cy) < 9) { s.dead = true; popDecoy(d); }
+      }
+      s.x += Math.cos(s.a) * s.v; s.y = Math.max(SURFACE + 4, s.y + Math.sin(s.a) * s.v); // runs just under the surface
+      if (!s.boost) particles.push({ kind: 'bubble', x: cx - Math.cos(s.a) * 8, y: cy - Math.sin(s.a) * 8, vx: rnd(-0.3, 0.3), vy: rnd(-0.5, 0), life: 30, max: 30, size: rnd(1, 2.2) }); // cavitation trail
+      if (--s.life <= 0 || cy > groundY(camX + cx)) { s.dead = true; boom(cx, cy, false); }
+    }
+    else if (s.type === 'bcl') { // boss bubble wall: our torpedoes and H-bombs go off in it
+      s.r = Math.min(BOSS_BCL_R, s.r + 2.5);
+      if (T % 2 === 0) { const a = rnd(0, 7), r = rnd(0, s.r); particles.push({ kind: 'bubble', x: s.x + Math.cos(a) * r, y: s.y + Math.sin(a) * r, vx: rnd(-0.3, 0.3), vy: rnd(-0.8, -0.2), life: 40, max: 40, size: rnd(1, 3) }); }
+      for (const t of torps) if (!t.dead && Math.hypot(t.x + t.w - s.x, t.y + t.h / 2 - s.y) < s.r) { t.dead = true; boom(t.x + t.w, t.y, false); flash = { msg: 'TORPEDO DEFEATED', t: 50 }; }
+      for (const m of missiles) if (!m.dead && Math.hypot(m.x + 2.5 - s.x, m.y + 7 - s.y) < s.r) { m.dead = true; megaBoom(m.x + 2.5, m.y + 7); flash = { msg: 'H-BOMB DEFEATED', t: 60 }; }
+      if (--s.life <= 0) s.dead = true;
+    }
     else if (s.type === 'cm') { // enemy sub decoy: thrown out, slows down, drifts and pings
       s.x += s.vx - scroll * 0.3; s.y += s.vy; s.vx *= 0.97; s.vy *= 0.95;
       s.y = Math.max(SURFACE + 6, Math.min(groundY(camX + s.x) - 8, s.y));
@@ -1200,7 +1374,7 @@ function update() {
     }
     if (s.type === 'charge' && s.y + s.h > groundY(camX + s.x)) { s.dead = true; boom(s.x + 5, s.y + 7, false); }
     if (s.type === 'charge' && !s.dead && s.y > SURFACE && proximityFuse(s, s.x + 5, s.y + 7)) continue;
-    if (s.type === 'sam' || s.type === 'atr' || s.type === 'cm') continue; // they only go after our weapons
+    if (s.type === 'sam' || s.type === 'atr' || s.type === 'cm' || s.type === 'bcl') continue; // they only go after our weapons
     if (!s.dead && hit(s, playerBox())) { s.dead = true; damagePlayer(); }
     for (let i = allies - 1; i >= 0; i--) if (!s.dead && hit(s, allyBox(i))) { s.dead = true; allies--; boom(allyBox(i).x + 28, allyBox(i).y + 12); }
     for (const t of torps) if (!s.dead && !t.dead && hit(s, t)) { s.dead = t.dead = true; boom(s.x, s.y, false); score += 5; }
@@ -1212,6 +1386,7 @@ function update() {
   let th = Infinity, thO = null;
   const near = (o, d) => { if (d < th) { th = d; thO = o; } };
   for (const s of eShots) {
+    if (s.type === 'brk') near(s, Math.hypot(s.x + s.w / 2 - px, s.y + s.h / 2 - py));
     if (s.type === 'asm' && !s.boost && player.up) near(s, Math.hypot(s.x + s.w / 2 - px, s.y + s.h / 2 - py));
     if (s.type === 'torp') { // only if its course passes close to the sub
       const rx = px - s.x - s.w / 2, ry = py - s.y - s.h / 2, v = Math.hypot(s.vx, s.vy) || 1, along = (rx * s.vx + ry * s.vy) / v;
@@ -1227,7 +1402,7 @@ function update() {
   player.threat = th < WARN_RANGE ? th : Infinity;
   if (thO && th < WARN_RANGE && !thO.warned) { // a new threat has us locked: danger message, once per threat
     thO.warned = true;
-    const what = { asm: 'MISSILE', torp: 'TORPEDO', beluga: 'KAMIKAZE WHALE', diver: 'COMBAT SWIMMER', drone: 'DRONE' }[thO.type];
+    const what = { asm: 'MISSILE', brk: 'SHKVAL', torp: 'TORPEDO', beluga: 'KAMIKAZE WHALE', diver: 'COMBAT SWIMMER', drone: 'DRONE' }[thO.type];
     if (what && !(flash && flash.danger && flash.t > 30)) flash = { msg: 'LOCKED TARGET - ' + what + ' INBOUND', t: 70, danger: true };
   }
   if (player.threat === Infinity) player.beepT = 0;
@@ -1240,7 +1415,7 @@ function update() {
   // Target lock: always the closest enemy sub or ship on screen (orange box). The H-bomb homes on it
   player.lock = null;
   let ld = Infinity;
-  for (const e of enemies) if ((e.type === 'sub' || e.type === 'boat') && !e.dead && e.x + e.w > 0 && e.x < W) {
+  for (const e of enemies) if ((e.type === 'sub' || e.type === 'boat' || e.type === 'boss') && !e.dead && e.x + e.w > 0 && e.x < W) {
     const d = Math.hypot(e.x + e.w / 2 - player.x - 46, e.y + e.h / 2 - player.y - 24);
     if (d < ld) { ld = d; player.lock = e; }
   }
@@ -1273,7 +1448,7 @@ function update() {
       particles.push({ kind: 'fire', x: bx, y: by, vx: -Math.cos(m.a), vy: -Math.sin(m.a), life: 12, max: 12, size: rnd(2, 4), color: '#ffb347' });
       particles.push({ kind: 'smoke', x: bx, y: by, vx: rnd(-0.2, 0.2), vy: 0.2, life: 50, max: 50, size: rnd(2, 4) });
     }
-    const struck = enemies.find(e => !e.dead && (e.type === 'sub' || e.type === 'boat') && nx > e.x - 3 && nx < e.x + e.w + 3 && ny > e.y - 3 && ny < e.y + e.h + 3);
+    const struck = enemies.find(e => !e.dead && (e.type === 'sub' || e.type === 'boat' || e.type === 'boss') && nx > e.x - 3 && nx < e.x + e.w + 3 && ny > e.y - 3 && ny < e.y + e.h + 3);
     if (m.lure && Math.hypot(m.lure.x + 3 - nx, m.lure.y + 3 - ny) < 10) { m.dead = m.lure.dead = true; megaBoom(nx, ny); } // wasted on the decoy
     else if (struck || ny > groundY(camX + nx) || ny < 8) { m.dead = true; megaBoom(nx, ny, struck); } // flies past aircraft
     else if (m.t > 600 || nx < -20 || nx > W + 20) m.dead = true;
@@ -1311,7 +1486,8 @@ function update() {
   }
   pickups = pickups.filter(p => !p.dead && p.x > -30);
 
-  if (dist >= levelLen) { state = 'next'; nextTimer = 180; enemies = []; eShots = []; sfx.win(); }
+  if (BOSSES[level] && dist >= levelLen && (!bossDone || --bossEnd > 0)) { dist = levelLen; if (!boss && !bossDone) spawnBoss(); } // the mission ends when the boss is sunk
+  else if (dist >= levelLen) { state = 'next'; nextTimer = 180; enemies = []; eShots = []; sfx.win(); }
 }
 
 // ---------- Draw ----------
@@ -1756,6 +1932,26 @@ function drawCM(s) { // enemy sub decoy: dark red canister with a blinking light
   ctx.fillStyle = T % 20 < 10 ? '#ff5050' : '#ffd0d0'; ctx.beginPath(); ctx.arc(0, -3.5, 1.5, 0, 7); ctx.fill();
   ctx.restore();
 }
+function drawBoss(e) { // Typhoon-class sub: our hull art at scale 5, flipped, with hatches and a bow laser
+  drawShip(e.x, e.y - 42, '#c62828', false, 5, true, e.hull);
+  ctx.fillStyle = '#15181b'; ctx.fillRect(e.x + 45, e.y - 18, 10, 2); ctx.fillRect(e.x + 95, e.y + 25, 10, 2); // rocket hatches: sail and keel
+  const lz = e.lzAim > 0 || e.lzBeam > 0;
+  ctx.fillStyle = lz ? (T % 6 < 3 ? '#ff3a30' : '#ffd0d0') : '#5a1010'; ctx.beginPath(); ctx.arc(e.x - 1, e.y + 14, lz ? 2.6 : 1.8, 0, 7); ctx.fill(); // laser emitter
+}
+function drawShkval(s) { // boss rocket-torpedo: blunt cavitator nose, dark body, red band, flame inside its gas bubble
+  ctx.save(); ctx.translate(s.x + s.w / 2, s.y + s.h / 2); ctx.rotate(s.a);
+  if (!s.boost) { ctx.fillStyle = 'rgba(220,240,255,0.2)'; ctx.beginPath(); ctx.ellipse(-1, 0, 10, 3.6, 0, 0, 7); ctx.fill(); } // cavitation bubble
+  ctx.fillStyle = '#3a3f45'; ctx.fillRect(-6, -1.5, 11, 3);
+  ctx.fillStyle = '#9aa2a9'; ctx.fillRect(5, -1.8, 1.2, 3.6);   // cavitator disk
+  ctx.fillStyle = '#c62828'; ctx.fillRect(1, -1.5, 1, 3);       // warhead band
+  ctx.fillStyle = '#2b2f33'; ctx.fillRect(-6, -2.6, 1.6, 5.2);  // fins
+  if (!s.boost) { ctx.fillStyle = T % 4 < 2 ? '#fff6c8' : '#ffb347'; ctx.beginPath(); ctx.moveTo(-6, -1); ctx.lineTo(-10 - Math.random() * 3, 0); ctx.lineTo(-6, 1); ctx.fill(); }
+  ctx.restore();
+}
+function drawBubbleWall(s) { // boss bubble screen: a pale cloud, the bubbles are particles
+  ctx.globalAlpha = 0.18 * Math.min(1, s.life / 30); ctx.fillStyle = '#dff6ff';
+  ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
+}
 function drawSAM(s) { // Rampart air/air missile: slim white dart with a red nose
   ctx.save(); ctx.translate(s.x + s.w / 2, s.y + s.h / 2); ctx.rotate(s.a);
   ctx.fillStyle = '#eef1f3'; ctx.fillRect(-4, -0.8, 7, 1.6);
@@ -1912,6 +2108,7 @@ function drawEnemy(e, extraRot = 0) {
   else if (e.type === 'beluga') drawBeluga(e);
   else if (e.type === 'diver') drawDiver(e);
   else if (e.type === 'eel') drawEel(e);
+  else if (e.type === 'boss') drawBoss(e);
   else drawRock(e);
   for (let i = 0; i < n; i++) drawMark(e.x + e.marks[i].dx, e.y + e.marks[i].dy, e.marks[i], e.type !== 'octo' && e.type !== 'eel');
   ctx.restore();
@@ -2184,7 +2381,7 @@ function draw() {
     else { drawStarfish(p.x + 10, p.y + 10, 12, T * 0.05, T % 30 < 15 ? '#ffb347' : '#ff7f50'); text('x2', p.y + 14, 10, '#fff', p.x + 10); }
   }
   for (const e of enemies) drawEnemy(e); // not forEach: it would pass the index as the rotation
-  eShots.forEach(s => s.type === 'torp' ? drawTorpedo(s, true) : s.type === 'sam' || s.type === 'atr' ? drawSAM(s) : s.type === 'cm' ? drawCM(s) : s.type === 'asm' ? drawASM(s) : drawCharge(s));
+  eShots.forEach(s => s.type === 'torp' ? drawTorpedo(s, true) : s.type === 'sam' || s.type === 'atr' ? drawSAM(s) : s.type === 'cm' ? drawCM(s) : s.type === 'asm' ? drawASM(s) : s.type === 'brk' ? drawShkval(s) : s.type === 'bcl' ? drawBubbleWall(s) : drawCharge(s));
   decoys.forEach(d => { ctx.globalAlpha = Math.min(1, d.life / 40); drawDecoy(d); ctx.globalAlpha = 1; });
   torps.forEach(t => drawTorpedo(t, false));
   missiles.forEach(drawHBomb);
@@ -2195,6 +2392,12 @@ function draw() {
   }
   if (myDrone) drawDrone(myDrone);
   if (laser) drawLaser(laser);
+  if (boss && boss.beam) drawLaser(boss.beam);
+  else if (boss && boss.lzAim > 0 && T % 6 < 4) { // boss laser aiming: dotted line, solid once locked
+    ctx.strokeStyle = boss.lzAim < BOSS_LZ_LOCK ? 'rgba(255,40,40,0.9)' : 'rgba(255,80,80,0.55)'; ctx.lineWidth = 1;
+    ctx.setLineDash(boss.lzAim < BOSS_LZ_LOCK ? [] : [3, 4]);
+    ctx.beginPath(); ctx.moveTo(boss.x - 2, boss.y + 14); ctx.lineTo(boss.ltx, boss.lty); ctx.stroke(); ctx.setLineDash([]);
+  }
 
   // Player sub tilts with its movement, blinks when hurt
   if (player.inv % 10 < 5) {
@@ -2268,11 +2471,18 @@ function draw() {
   text('ally in: ' + (10 - kills % 10) + ' kills', 44, 12, '#fff', W - 10, 'right');
   // Level progress bar
   const bx = W / 2 - 120, prog = Math.min(1, dist / levelLen);
+  if (boss) { // boss fight: its hp replace the progress bar
+    ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(bx, 9, 240, 10);
+    const sw = 238 / boss.max;
+    for (let i = 0; i < boss.max; i++) { ctx.fillStyle = i < boss.hp ? (boss.flash ? '#fff' : '#e53935') : 'rgba(255,255,255,0.12)'; ctx.fillRect(bx + 2 + i * sw, 11, sw - 2, 6); }
+    text(boss.name, 36, 14, '#ff8a80');
+  } else {
   ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(bx, 10, 240, 8);
   ctx.fillStyle = '#7f7'; ctx.fillRect(bx, 10, 240 * prog, 8);
   drawShip(bx + 240 * prog - 10, 7, ship().color, false, 0.55);
   ctx.fillStyle = '#7a4a1e'; ctx.fillRect(bx + 244, 8, 12, 10); ctx.fillStyle = '#ffd700'; ctx.fillRect(bx + 244, 11, 12, 2);
   text('MISSION ' + level, 36, 14, '#bff');
+  }
   if (player.jam > 0) text('WEAPONS OFFLINE  ' + Math.ceil(player.jam / 60) + 's', 74, 14, T % 30 < 15 ? '#7df9ff' : '#fff');
   if (player.double > 0 && !ship().double) text('RAPID RELOAD  ' + Math.ceil(player.double / 60) + 's', 54, 14, '#ffd700');
   if (whiteFlash > 0) { ctx.fillStyle = 'rgba(255,255,255,' + whiteFlash + ')'; ctx.fillRect(-20, -20, W + 40, H + 40); }

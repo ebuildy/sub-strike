@@ -6,7 +6,7 @@ kamikaze belugas.
 
 ## Project shape
 
-- **One file: `index.html`.** HTML, CSS and all the JavaScript (about 1100 lines) live in it.
+- **One file: `index.html`.** HTML, CSS and all the JavaScript (about 2550 lines) live in it.
   There is no build, no dependencies and no assets: every graphic is drawn on a Canvas 2D and every
   sound is synthesized with Web Audio. Keep it that way: no libraries, images or extra files unless
   the owner asks.
@@ -43,6 +43,11 @@ kamikaze belugas.
      - Pass the position when you call them.
    - `tone(freq, dur, type, vol, slideTo)` and `noise()` stay for simple beeps, UI sounds and the
      music from `music()`.
+   - **Boss theme (`bossMusic()`, owner: "perfect")** plays instead of `music()` while a boss is alive, from its first
+     beat (`bossStep = 0` in `spawnBoss`). Original swashbuckler-style tune (owner asked for Pirates of the Caribbean;
+     do not copy that copyrighted melody): 6/8 in D minor, `BM_STEP = 11` steps per eighth (~110 BPM), Dm-Dm-Bb-C-Dm-Gm-A-A.
+     Cello eighths, low strings, big drum and brass hits on 1 and 4, snare, cymbal, a drum roll in bar 8, and a lead
+     (`BM_LEAD`). Voices go through `syn()` (filtered oscillator) to the music bus `mbus` at `BM_VOL = 0.4` (owner: softer).
    - The laser is a persistent oscillator, `laserSound(on)`. The CIWS is another persistent sound,
      `ciwsSound(on)`: noise chopped by a 75 Hz sawtooth LFO (one crack per round) plus a buzzing sawtooth,
      spin-up on start and a spin-down whine on stop. `sfx.surface`, `sfx.dive` and `sfx.raise` go with it.
@@ -53,14 +58,14 @@ kamikaze belugas.
 4. **Game state** and the main helpers:
    - Hit boxes: `playerBox()` and `allyBox(i)`.
    - Effects: `boom()`, `impact()` and `addMark()` (burning damage holes).
-   - Spawning: `spawnEnemy()`, `spawnAir()` and `spawnBeluga()`.
+   - Spawning: `spawnEnemy()`, `spawnAir()`, `spawnBeluga()` and `spawnBoss()`.
    - Mine fuse: `proximityFuse()`.
    - Outcomes: `damagePlayer()` and `killEnemy()`. When an enemy dies, a `wreck` particle sinks or
      falls.
 5. **Update:** `update()` is the whole simulation for one step.
 6. **Draw:** `draw()` plus one `drawX()` per object:
-   - Ships and weapons: `drawShip`, `drawCIWS`, `drawTorpedo`, `drawCharge`, `drawLaser`, `drawHBomb`, `drawRampart`, `drawASM` and `drawSAM`.
-   - Sea enemies: `drawMine`, `drawOcto` (drawn at `OCTO_K = 0.5`, owner: 2x smaller; box 17x15), `drawBeluga`, `drawDiver` and `drawEel`.
+   - Ships and weapons: `drawShip`, `drawCIWS`, `drawTorpedo`, `drawCharge`, `drawLaser`, `drawHBomb`, `drawRampart`, `drawASM`, `drawSAM`, `drawShkval` and `drawBubbleWall` (boss).
+   - Sea enemies: `drawMine`, `drawOcto` (drawn at `OCTO_K = 0.5`, owner: 2x smaller; box 17x15), `drawBeluga`, `drawDiver`, `drawEel` and `drawBoss`.
    - Surface and air enemies: `drawBoat`, `drawHeli` and `drawDrone`.
    - Scenery: `drawRock`.
    - `drawEnemy` dispatches by `e.type`.
@@ -73,7 +78,7 @@ kamikaze belugas.
 ## Conventions
 
 - **Entities are plain objects in arrays:** `enemies`, `torps` (player torpedoes), `bullets` (CIWS rounds), `eShots` (enemy
-  `torp`, `charge`, `asm`, `sam`, `atr` and `cm`), `missiles`, `pickups` and `particles`.
+  `torp`, `charge`, `asm`, `sam`, `atr`, `cm`, and the boss's `brk` and `bcl`), `missiles`, `pickups` and `particles`.
 - **Removing an entity:** set `.dead = true`. The arrays are filtered once per step.
 - **Enemies** have `{type, x, y, w, h, hp, pts}` plus fields for their own type.
   - Each step, the shared enemy loop moves every enemy left by `scroll` plus `e.vx`.
@@ -130,6 +135,7 @@ kamikaze belugas.
     and `LIFE_DROPS = 2` life pickups (`type: 'life'`, a pulsing heart in a ring) come in like coins at 30% and 65% of
     the mission: +1 life each ("MEDEVAC CRATE: +1 LIFE"). Tested: mission 5 with 2 lives starts with 3, with 3 stays 3;
     both crates dropped and were collected; none in mission 4. A `+` line in `NEWS` is drawn green like a weapon.
+  - **Bosses at the end of missions 4 and 5:** see Bosses below.
 
 - **Controls** (the owner uses an AZERTY keyboard; keep the action keys together under the left hand)
   - Action keys are read by physical position (`e.code`, `keys.KeyF`, `keys.Space`), so they are the
@@ -146,6 +152,7 @@ kamikaze belugas.
     threat cards (`ROSTER`: mine, octopus, eel, whale, swimmer, helo, drone, anti-ship missile, each drawn with the
     game's own `drawX`, scaled into a clipped card, with a one-line tip and "FROM MISSION n" in red when locked
     early), then the controls and ENTER / ARMORY / coins. **Add any new enemy to `ROSTER` (2D) or `SHOWCASE` (3D).**
+    The grid is full (4x2); the bosses are not on it, they are announced by the mission 4 and 5 briefings.
   - **Tiny 3D engine** (no library): meshes are face lists `{ p: [[x,y,z]...], c: [r,g,b] }` (x = length, y = up),
     built once into `MESH` by `subMesh(hull, fins)` (hull of revolution, sail, planes, X rudders) and `frigateMesh()`
     (lofted hull, superstructure, pyramid mast, hangar, radome, Rampart) with `box3`. `draw3D(mesh, cx, cy, scale,
@@ -313,6 +320,40 @@ kamikaze belugas.
   octopus: red-brown mottled mantle swept back, gold eye with a slit pupil, tapering curled arms with suckers
   (`GR.octo`). The combat swimmer wears black fins, a dark tactical mask and a rebreather.
 - **Damaged enemies** smoke, leak bubbles, get knocked back, and tilt or list.
+
+- **Bosses (`BOSSES[level]`, `spawnBoss()`, `updateBoss()`, `drawBoss()`):** when `dist` reaches `levelLen` in a mission
+  that has an entry, `dist` is held there and the boss comes in; the mission ends 150 steps (`bossEnd`) after it is sunk.
+  Normal spawning has stopped by then, so it is a one-on-one fight. The global `boss` is the live boss (or null).
+  | | Mission 4: TYPHOON | Mission 5: BELGOROD |
+  |---|---|---|
+  | hp | 10 | 20 |
+  | max speed (`speed`, px/step; our sub 1.75) | 2 | 2.6 |
+  | weapons defeated (`save`) | 70% | 80% |
+  | swimmers (`swim`) | no | 2 every 360 steps, max `BOSS_DIVERS = 3` out |
+  - **Art:** `drawShip` at scale 5, flipped, `hull` color per boss; box 180x28 drawn at y - 42 (the sail sticks out above
+    the box). Bow laser emitter at (x - 2, y + 14). `pts` = 50 per hp.
+  - **Movement:** cancels the scroll (holds its place on screen) and roams between random waypoints in the right half
+    (x from W/2), turning every 1.5 to 3 s. Ramming it costs a life and pushes the sub back.
+  - **Shkval salvo (`brk` eShot):** every `BOSS_FIRE = 300` steps, one rocket-torpedo out of the sail and one out of the
+    keel ("SHKVAL LAUNCH - 2 ROCKETS INBOUND"). Ejected for 18 steps, then the motor lights and it homes (0.035 rad/step,
+    up to 3 px/step) on the sub or the nearest decoy; 7 s life. Runs just under the surface. Killed by torpedoes, the
+    laser (F), the bubble screen (E); 1 life on a hit. Counted by the threat warning ("LOCKED TARGET - SHKVAL INBOUND").
+    Tested: a sub sitting still lost 5 lives to 12 rockets in 30 s.
+  - **Bow laser:** within `BOSS_LASER_RANGE = 170` px it aims for 40 steps (dotted line, "LASER LOCK - BREAK AWAY"),
+    locks for the last 24 (solid line, time to dodge), fires 20 steps (1 life, kills allies), then cools 120 steps.
+    Tested: parked in front of it, 7 shots, 5 hits (the other 2 during invincibility).
+  - **Defense (`bossDefend`):** each torpedo whose course hits it (40 to `BOSS_CM_RANGE = 260` px out) and each guided
+    H-bomb aimed at it under water (more than 110 px out) gets one roll at `save`. On a yes, 50/50: a decoy (`cm`, the
+    weapon gets `lure`) or a bubble wall (`bcl` eShot, radius up to `BOSS_BCL_R = 30`, 150 steps) halfway along its path
+    that sets off any torpedo or H-bomb entering it ("TORPEDO DEFEATED", "H-BOMB DEFEATED"). One reaction per 20 steps.
+    Tested with the boss held still: Typhoon let 29/100 and 39/100 torpedoes through (two runs) and 9/40 H-bombs;
+    Belgorod 25/100 torpedoes. A moving boss also dodges many torpedoes: expect long fights.
+  - **H-bomb:** locks onto the boss; a hit takes `BOSS_HBOMB = 3` hp instead of killing it (`megaBoom`).
+  - **Swimmers (Belgorod):** 2 `diver`s out of a hatch behind the sail (one up, one down), hunting at once like any
+    swimmer ("COMBAT SWIMMERS DEPLOYED"). Tested: 10 launches in 60 s.
+  - **HUD:** the progress bar becomes a red bar with one segment per hp and the boss name under it.
+  - **Death:** big blast, its live rockets blow up, "SPLASH ONE <NAME> - BOSS DOWN", a burning wreck sinks.
+  - **To test a boss fast:** `reset(); level = 5; startLevel(); dist = levelLen; enemies = []; state = 'play';`
 
 ## How to test (no test suite)
 
