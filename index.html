@@ -380,9 +380,12 @@ let bullets = [], laser = null, decoys = [], decoyCool = 0, bubbleAmmo = 5, bubb
 let dashMsg = '', dashA = 0, dashRed = false; // dashRed: danger message (red), else info (orange) // bottom dashboard: last message and its show/hide amount (0..1)
 const RETRIES = 3; // lost subs per game: each one restarts the failed mission, then it's back to mission 1
 let retries = RETRIES, lvlSave, shopFrom = 'title'; // lvlSave: score/kills/allies at mission start, restored on a retry
-// Weather: a storm (dark clouds, rain, lightning) from the middle of mission 2 to the middle of mission 3
-let storm = 0, stormOn = false, lightning = 0, boltX = 0; // storm: 0 clear .. 1 full storm, eased; lightning: flash 0..1
-const stormTarget = () => (level === 2 && dist >= levelLen / 2) || (level === 3 && dist < levelLen / 2) ? 1 : 0;
+// Weather: a storm (dark clouds, rain, lightning) from the middle of mission 2 to the middle of mission 3,
+// a heavy storm (more rain and lightning, big waves, ships rolling) from the middle of mission 4 to the middle of mission 5
+let storm = 0, stormLvl = 0, lightning = 0, boltX = 0; // storm: 0 clear, 1 storm, 2 heavy storm, eased; lightning: flash 0..1
+const stormTarget = () => (level === 2 && dist >= levelLen / 2) || (level === 3 && dist < levelLen / 2) ? 1
+  : (level === 4 && dist >= levelLen / 2) || (level === 5 && dist < levelLen / 2) ? 2 : 0;
+const heavy = () => storm > 1 ? storm - 1 : 0; // 0..1: how much of the heavy storm is on
 let camX = 0, dist, levelLen, scroll, spawnTimer, coinTimer, kills, allies, flash, nextTimer, shake = 0;
 const WARN_RANGE = 400, WARN_RED = 150; // threat warning: starts beeping at 400 px, red under 150 px
 const SUB_CM_LEVEL = 3, SUB_CM_RANGE = 220, SUB_CM_SAVE = 0.5; // enemy sub decoys: from level 3, reaction range (px), chance to try
@@ -427,7 +430,7 @@ function startLevel() {
   belugaLeft = level < UNLOCK.swimmers ? 0 : MOBILE ? level - 1 : level * 2 - 3; belugaGap = (levelLen - 1000) / belugaLeft; nextBeluga = 300 + belugaGap * 0.4;
   enemies.push({ type: 'boat', x: W + 40, y: SURFACE - 24, w: 110, h: 40, hp: 3, pts: 40, fire: 120, rpA: -2.6 }); // a frigate opens every level
   lvlSave = { score, kills, allies };
-  storm = stormTarget(); stormOn = storm > 0; lightning = 0; // mission 3 starts in the storm
+  storm = stormLvl = stormTarget(); lightning = 0; // missions 3 and 5 start in the storm
 }
 
 function boom(x, y, big = true) {
@@ -517,9 +520,11 @@ const NEWS = {
       ['!', 'WEATHER: STORM FRONT from mid-mission']],
   3: [['E', 'BUBBLE SCREEN ISSUED: blasts close threats away'], ...MOBILE ? [] : [['W', 'AIR DRONE ISSUED: kills drones, rams helos']],
       ['!', 'ENEMY SUBS now deploy decoys']],
-  4: [['!', 'HEAVIER RESISTANCE: more and faster enemies'], ['!', 'BOSS: TYPHOON-CLASS SUB at the end of the mission']],
+  4: [['!', 'HEAVIER RESISTANCE: more and faster enemies'], ['!', 'BOSS: TYPHOON-CLASS SUB at the end of the mission'],
+      ['!', 'WEATHER: HEAVY STORM, SEA STATE 7 from mid-mission']],
   5: [['+', 'RESUPPLY: +1 life at start when under 3 lives'], ['+', '2 MEDEVAC CRATES per mission: +1 life each'],
-      ['!', 'HEAVIER RESISTANCE: more and faster enemies'], ['!', 'BOSS: BELGOROD-CLASS SUB, launches swimmers']],
+      ['!', 'HEAVIER RESISTANCE: more and faster enemies'], ['!', 'BOSS: BELGOROD-CLASS SUB, launches swimmers'],
+      ['!', 'WEATHER: HEAVY STORM until mid-mission']],
 };
 const BRIEF_TIME = 300; // 5 s
 let briefT = 0;
@@ -962,9 +967,11 @@ function update() {
   if (state !== 'play') { laserSound(false); ciwsSound(false); return; }
 
   camX += scroll; dist += scroll;
-  const sT = stormTarget(); storm += Math.max(-0.004, Math.min(0.004, sT - storm)); // the storm rolls in or clears in about 4 s
-  if (sT !== +stormOn) { stormOn = !!sT; if (!flash || !flash.danger) flash = { msg: stormOn ? 'WEATHER ALERT: STORM FRONT' : 'STORM CLEARING', t: 120 }; }
-  if (storm > 0.8 && Math.random() < 1 / 360) { lightning = 1; boltX = rnd(60, W - 60); sfx.thunder(boltX, rnd(0.2, 1.2)); } // a strike every ~6 s
+  const sT = stormTarget(); storm += Math.max(-0.004, Math.min(0.004, sT - storm)); // the storm rolls in or clears in about 4 s (8 s for the heavy one)
+  if (sT !== stormLvl) { stormLvl = sT; if (!flash || !flash.danger) flash = { msg: ['STORM CLEARING', 'WEATHER ALERT: STORM FRONT', 'STORM WARNING: SEA STATE 7'][sT], t: 120 }; }
+  const hv = heavy();
+  if (storm > 0.8 && Math.random() < (hv > 0.5 ? 1 / 140 : 1 / 360)) { lightning = 1; boltX = rnd(60, W - 60); sfx.thunder(boltX, rnd(0.2, 1.2)); } // a strike every ~6 s, ~2.3 s in the heavy storm
+  if (hv > 0.3 && T % 3 === 0) { const x = rnd(0, W); particles.push({ kind: 'drop', x, y: waveY(x), vx: rnd(-2.5, -1), vy: rnd(-2, -0.8), life: 22, max: 22, size: rnd(1, 2) }); } // spray blown off the crests
   if (flash && --flash.t <= 0) flash = null;
   if (flash) { dashMsg = flash.msg; dashRed = !!flash.danger; }
   dashA += ((flash ? 1 : 0) - dashA) * 0.12; // dashboard message fades / slides in and out
@@ -1568,7 +1575,12 @@ function shade(hex, f) { // f < 0 darker, f > 0 lighter
   const n = parseInt(hex.slice(1), 16), c = [n >> 16, (n >> 8) & 255, n & 255];
   return 'rgb(' + c.map(v => Math.round(f < 0 ? v * (1 + f) : v + (255 - v) * f)).join(',') + ')';
 }
-const waveY = sx => SURFACE + Math.sin((sx + camX) * 0.03 + T * 0.05) * 3;
+const waveY = sx => { // heavy storm: steep swells with sharp crests, up to 22 px above the surface (never below SURFACE + 3, the CSS water line)
+  const wx = sx + camX, s = SURFACE + Math.sin(wx * 0.03 + T * 0.05) * 3;
+  if (storm <= 1) return s;
+  const c = 1 - Math.abs(Math.sin(wx * 0.016 + T * 0.04)); // 0 in the troughs, 1 on the crests (~200 px apart)
+  return s - (storm - 1) * (c * c * 17 + 2 + 2 * Math.sin(wx * 0.05 - T * 0.03));
+};
 
 function drawLayer(speed, color, base, a1, f1, a2, f2) {
   ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(0, H);
@@ -1643,8 +1655,9 @@ function drawBackground() {
     GR.sand = ctx.createLinearGradient(0, H - 70, 0, H);
     GR.sand.addColorStop(0, '#e6c88a'); GR.sand.addColorStop(1, '#9c7640');
   }
+  const sk = Math.min(1, storm), hv = heavy();
   if (storm > 0) { // storm: dark sky, lightning lights it up from inside the clouds
-    ctx.fillStyle = 'rgba(38,44,54,' + storm * 0.88 + ')'; ctx.fillRect(-20, -20, W + 40, SURFACE + 24);
+    ctx.fillStyle = 'rgba(38,44,54,' + (sk * 0.88 + hv * 0.08) + ')'; ctx.fillRect(-20, -20, W + 40, SURFACE + 24);
     if (lightning > 0.05) { ctx.fillStyle = 'rgba(215,225,255,' + lightning * 0.55 + ')'; ctx.fillRect(-20, -20, W + 40, SURFACE + 24); }
   }
   if (storm < 1) {
@@ -1658,7 +1671,7 @@ function drawBackground() {
     ctx.globalAlpha = 1;
   }
   if (storm > 0) { // low, heavy storm clouds in two layers
-    ctx.globalAlpha = storm;
+    ctx.globalAlpha = sk;
     for (let l = 0; l < 2; l++) {
       ctx.fillStyle = l ? '#2a2f37' : '#454c57'; ctx.beginPath();
       for (let i = 0; i < 7; i++) {
@@ -1675,14 +1688,19 @@ function drawBackground() {
   ctx.fillStyle = '#3fb6e0'; ctx.beginPath(); ctx.moveTo(0, SURFACE + 4);
   for (let sx = 0; sx <= W; sx += 8) ctx.lineTo(sx, waveY(sx));
   ctx.lineTo(W, SURFACE + 4); ctx.fill();
+  if (hv > 0) { // whitecaps along the big swells
+    ctx.strokeStyle = 'rgba(230,240,245,' + hv * 0.55 + ')'; ctx.lineWidth = 1.5; ctx.beginPath();
+    for (let sx = 0; sx <= W; sx += 8) ctx.lineTo(sx, waveY(sx) + 1);
+    ctx.stroke();
+  }
   if (storm > 0) { // gray, gloomy sea under the storm
-    ctx.fillStyle = 'rgba(4,14,26,' + storm * 0.4 + ')'; ctx.beginPath(); ctx.moveTo(0, H + 20);
+    ctx.fillStyle = 'rgba(4,14,26,' + (sk * 0.4 + hv * 0.12) + ')'; ctx.beginPath(); ctx.moveTo(0, H + 20);
     for (let sx = 0; sx <= W; sx += 8) ctx.lineTo(sx, waveY(sx));
     ctx.lineTo(W, H + 20); ctx.fill();
   }
 
   // Sun rays (hidden by the storm)
-  ctx.fillStyle = 'rgba(255,255,255,' + 0.05 * (1 - storm) + ')';
+  ctx.fillStyle = 'rgba(255,255,255,' + 0.05 * (1 - sk) + ')';
   for (let i = 0; i < 7; i++) {
     const x0 = i * 130 + Math.sin(T * 0.004 + i) * 30;
     ctx.beginPath(); ctx.moveTo(x0, SURFACE); ctx.lineTo(x0 + 40, SURFACE); ctx.lineTo(x0 + 140, H); ctx.lineTo(x0 + 60, H); ctx.fill();
@@ -2191,6 +2209,11 @@ function drawEnemy(e, extraRot = 0) {
   const n = e.marks ? e.marks.length : 0;
   const tilt = n * (e.type === 'sub' ? -0.07 : e.type === 'boat' ? 0.06 : 0) + extraRot; // damaged: nose down / listing
   ctx.save();
+  const frig = e.type === 'boat' ? e : e.parked, hv = heavy(); // the heli parked on the deck pitches with its frigate
+  if (frig && hv > 0) { // heavy storm: the frigate heaves and pitches on the swell
+    const cx = frig.x + frig.w / 2, cy = frig.y + frig.h / 2;
+    ctx.translate(cx, cy + (waveY(cx) - SURFACE) * 0.6); ctx.rotate((waveY(cx + 30) - waveY(cx - 30)) / 60 * 0.8 * hv); ctx.translate(-cx, -cy);
+  }
   if (tilt) { const cx = e.x + e.w / 2, cy = e.y + e.h / 2; ctx.translate(cx, cy); ctx.rotate(tilt); ctx.translate(-cx, -cy); }
   if (e.flash) ctx.globalAlpha *= 0.45; // hit flash
   if (e.type === 'mine') drawMine(e);
@@ -2230,12 +2253,12 @@ function drawHeart(x, y) {
 }
 
 function drawRain() { // slanted streaks falling to the sea, small splash rings on the surface
-  const n = storm * 150 | 0, top = SURFACE + 2;
+  const hv = heavy(), n = Math.min(1, storm) * 150 + hv * 170 | 0, top = SURFACE + 2, sl = 0.25 + hv * 0.5; // sl: slant, the heavy storm's wind
   ctx.strokeStyle = 'rgba(190,205,225,0.45)'; ctx.lineWidth = 0.8; ctx.beginPath();
   for (let i = 0; i < n; i++) {
     const f = hash(i * 1.7) * top + T * (7 + hash(i * 2.9) * 3), y = f % top - 10;
-    const x = ((hash(i * 5.3) * (W + 60) - f * 0.25 - camX * 0.3) % (W + 60) + W + 60) % (W + 60) - 30;
-    ctx.moveTo(x, y); ctx.lineTo(x - 2, y + 8);
+    const x = ((hash(i * 5.3) * (W + 60) - f * sl - camX * 0.3) % (W + 60) + W + 60) % (W + 60) - 30;
+    ctx.moveTo(x, y); ctx.lineTo(x - sl * 8, y + 8);
   }
   ctx.stroke();
   ctx.strokeStyle = 'rgba(200,215,235,0.5)'; ctx.beginPath();

@@ -348,17 +348,23 @@ kamikaze belugas.
   (`GR.octo`). The combat swimmer wears black fins, a dark tactical mask and a rebreather.
 - **Damaged enemies** smoke, leak bubbles, get knocked back, and tilt or list.
 
-- **Weather: storm from mid-mission 2 to mid-mission 3 (owner).** `stormTarget()` is 1 when `level === 2 && dist >=
-  levelLen / 2` or `level === 3 && dist < levelLen / 2`; `storm` (0..1) eases 0.004 per step toward it (~4 s), and
-  `startLevel` sets it at once (mission 3 and its retries start in the storm). "WEATHER ALERT: STORM FRONT" /
-  "STORM CLEARING" (info, never over a danger message). Mission 1 is unchanged. Visual only, no gameplay effect.
+- **Weather (owner): storm from mid-mission 2 to mid-mission 3, heavy storm from mid-mission 4 to mid-mission 5.**
+  `stormTarget()` gives 1 (`level === 2 && dist >= levelLen / 2` or `level === 3 && dist < levelLen / 2`), 2 (same for
+  levels 4 and 5) or 0. `storm` (0..2) eases 0.004 per step toward it (~4 s per unit); `startLevel` sets it at once
+  (missions 3 and 5 and their retries start in the storm). `heavy()` = `storm - 1` clamped at 0. Messages (info, never
+  over a danger message): "WEATHER ALERT: STORM FRONT", "STORM WARNING: SEA STATE 7", "STORM CLEARING". Missions 1 and
+  6+ are clear. Visual and sound only, no gameplay effect (hit boxes and `SURFACE` are unchanged).
   - `drawBackground`: dark sky overlay, sun and white clouds fade out, two layers of dark storm clouds, a gloomy veil
-    on the sea, sun rays hidden. `drawRain()` (after the particles, before the HUD): up to 150 slanted streaks down to
-    the surface plus splash rings, positions from `hash()` and `T` (no allocations). Cost: about +0.4 ms per frame.
-  - Lightning: above `storm > 0.8`, a 1/360 chance per step (~6 s): `lightning = 1` (decays 0.85 per step) lights the
-    sky, a `bolt()` strikes from the cloud base at `boltX`, thunder follows 0.2 to 1.2 s later. Tested: 10 strikes in
-    the stormy half of mission 2, 5 in mission 3.
-  - The NEWS for mission 2 has a "WEATHER: STORM FRONT from mid-mission" line. The title screen always shows clear weather.
+    on the sea, sun rays hidden. `drawRain()` (after the particles, before the HUD): 150 slanted streaks (320 and more
+    slant in the heavy storm) plus splash rings, positions from `hash()` and `T` (no allocations).
+  - Lightning: above `storm > 0.8`, a 1/360 chance per step (~6 s; 1/140 in the heavy storm): `lightning = 1` (decays
+    0.85 per step) lights the sky, a `bolt()` strikes from the cloud base at `boltX`, thunder follows 0.2 to 1.2 s later.
+  - **Big waves (heavy storm):** `waveY(sx)` adds steep swells with sharp crests ~200 px apart, up to ~22 px above
+    `SURFACE` (never below `SURFACE + 3`, where the CSS water starts), with a whitecap line and spray (`drop` particles)
+    blown off the crests. In `drawEnemy`, frigates (and the heli parked on deck) heave with `waveY` and pitch with its slope.
+  - Tested: mission 2 storm at 50%, 5 strikes; mission 3 clears at 50%; mission 4 heavy storm at 50%, 14 strikes;
+    mission 5 clears at 50%, 19 strikes; missions 1 and 6 clear. Draw cost ~1.1 ms clear, ~2.5 ms in the heavy storm.
+  - The NEWS for missions 2, 4 and 5 have a "WEATHER:" line. The title screen always shows clear weather.
 
 - **Bosses (`BOSSES[level]`, `spawnBoss()`, `updateBoss()`, `drawBoss()`):** when `dist` reaches `levelLen` in a mission
   that has an entry, `dist` is held there and the boss comes in; the mission ends 150 steps (`bossEnd`) after it is sunk.
