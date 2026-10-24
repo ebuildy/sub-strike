@@ -10,9 +10,15 @@ kamikaze belugas.
   There is no build, no dependencies and no assets: every graphic is drawn on a Canvas 2D and every
   sound is synthesized with Web Audio. Keep it that way: no libraries, images or extra files unless
   the owner asks.
-- **Not a git repo.** Before a risky edit, back up the file to your scratch directory.
+- **Git repo** `ebuildy/sub-strike` (public, branch `main`). Commit or push only when the owner asks. Before a
+  risky edit, back up the file to your scratch directory.
 - **To run it:** `open index.html` on macOS. It works from `file://` and needs no server. Reopen it
   for the owner after each change.
+- **Published on GitHub Pages:** https://ebuildy.github.io/sub-strike/ serves `index.html` from the root of
+  `main`. Every push to `main` goes live about a minute later, so push only a tested, working game.
+  - The site is static and read-only: no backend, so scores, coins and ships stay in each player's `localStorage`.
+    A shared leaderboard would need an outside service.
+  - Keep every path relative and the game working from `file://` and from the `/sub-strike/` subpath.
 
 ## Language
 

@@ -14,7 +14,9 @@ canvas and every sound is synthesized live.
 
 ## Play
 
-Open `index.html` in a browser (on macOS: `open index.html`). It works offline, with no server.
+**Play online: https://ebuildy.github.io/sub-strike/** (no install).
+
+Or open `index.html` in a browser (on macOS: `open index.html`). It works offline, with no server.
 
 | Key | Action |
 |---|---|
@@ -63,4 +65,5 @@ rules already agreed. Keep it up to date when the game changes; Claude does this
 Ground rules:
 - Keep everything in `index.html`: no libraries, images or extra files.
 - In-game text is in English, with military vocabulary. Code and comments are in English too.
-- There is no git history, so back up `index.html` before a big change.
+- The game is published on GitHub Pages from `main`: every push goes live about a minute later, so push only
+  a tested, working game.
