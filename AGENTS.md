@@ -11,6 +11,9 @@ kamikaze belugas.
   sound is synthesized with Web Audio. Keep it that way: no libraries, images or extra files unless
   the owner asks.
 - **Not a git repo.** Before a risky edit, back up the file to your scratch directory.
+- **Leaderboard server: `api.py`** (Python standard library only, `python3 api.py`, port 8000). It also serves the game at
+  http://localhost:8000. The game still runs from `file://` without it (it then talks to `http://localhost:8000`, and shows
+  "LEADERBOARD OFFLINE" at game over). Scores are stored in `leaderboard.json` (git-ignored).
 - **To run it:** `open index.html` on macOS. It works from `file://` and needs no server. Reopen it
   for the owner after each change.
 
@@ -354,6 +357,25 @@ kamikaze belugas.
   - **HUD:** the progress bar becomes a red bar with one segment per hp and the boss name under it.
   - **Death:** big blast, its live rockets blow up, "SPLASH ONE <NAME> - BOSS DOWN", a burning wreck sinks.
   - **To test a boss fast:** `reset(); level = 5; startLevel(); dist = levelLen; enemies = []; state = 'play';`
+
+## Leaderboard and anti-cheat (`api.py`)
+
+- **The score is never sent.** `reset()` calls `startRun()` (POST `/api/start`, the server notes the start time). Every
+  score change also calls `scored(code)`, which logs `[run.steps, code]`: the enemy type for a kill (`killEnemy`), or
+  `coin`, `charge`, `brk`, `shot`, `sam`, `asm`; `L` when a mission is accomplished. `run.steps` counts play steps only.
+- **Game over** (`damagePlayer` -> `finishRun()`): POST `/api/finish` with the log. The server replays it with its own
+  points table and rejects it ("SCORE REJECTED BY COMMAND") if: more steps than real time allows, a mission shorter than
+  `levelLen / scroll`, a boss mission left without its boss or a second boss, belugas/swimmers/eels too early, more than
+  `2 x mission - 3` belugas, or more than `EVENTS_PER_S = 1` event per second (+30 per mission). Each run finishes once.
+- **`drawOver()`** shows the score, the top 10 (own row green) and the callsign entry (12 chars, A-Z 0-9 space . _ -;
+  keys type letters while `run.status === 'name'`, ENTER confirms, ESC skips). The last callsign is saved in `si_name`.
+- **Keep `api.py` in sync** with the game: `KILL_PTS`, `BONUS_PTS`, `BOSS_HP`, `FROM_LEVEL`, `level_steps()` mirror
+  `pts`, the bonus `score +=` lines, `BOSSES`, `UNLOCK` and `startLevel()`. A new way to score needs a `scored()` call
+  and an entry in `api.py`, or real runs get rejected.
+- Tested: a bot through missions 1-5 (27248 steps, 155 events, 12955 points): the server recomputed 12955; the same log
+  sent at once was rejected (faster than real time); compressed in time, extra boss, extra belugas or 200 extra helis:
+  rejected. Limit: a forged log that stays within the real time and the rates still passes, and a bot that plays the
+  game cannot be told apart.
 
 ## How to test (no test suite)
 

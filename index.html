@@ -325,6 +325,34 @@ function save() { try { localStorage.setItem('si_coins', coins); localStorage.se
 let coins = load('si_coins', 0), owned = load('si_owned', [0]), shipIdx = load('si_ship', 0), shopCursor = 0, shopMsg = '';
 const ship = () => SHIPS[shipIdx];
 
+// ---------- Leaderboard (api.py) ----------
+// The score is never sent: the game logs each scoring event [play step, code] and api.py replays the log with its
+// own points table, checks it against the real time elapsed, and keeps the score it computed itself.
+const API = location.protocol === 'file:' ? 'http://localhost:8000' : '';
+let run = null, board = null, callsign = load('si_name', ''); // run: { id, steps, ev, status, score, rank, t }; board: top 10, null if offline
+function api(path, body) {
+  const opt = body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {};
+  return fetch(API + '/api/' + path, opt).then(r => r.ok ? r.json() : Promise.reject(r.status));
+}
+function startRun() {
+  const r = run = { id: null, steps: 0, ev: [], status: 'live' };
+  api('start', {}).then(d => r.id = d.id).catch(() => {});
+}
+function scored(code) { if (run) run.ev.push([run.steps, code]); }
+function finishRun() {
+  const r = run; board = null; r.t = T;
+  if (!r.id) { r.status = 'offline'; api('leaderboard').then(d => board = d.top).catch(() => {}); return; }
+  r.status = 'sending';
+  api('finish', { id: r.id, steps: r.steps, events: r.ev })
+    .then(d => { board = d.top; r.score = d.score; r.rank = d.rank; r.status = 'name'; })
+    .catch(c => { r.status = c === 422 ? 'rejected' : 'offline'; api('leaderboard').then(d => board = d.top).catch(() => {}); });
+}
+function submitName() {
+  const r = run; r.status = 'sending';
+  try { localStorage.setItem('si_name', JSON.stringify(callsign)); } catch {}
+  api('name', { id: r.id, name: callsign }).then(d => { board = d.top; r.rank = d.rank; r.status = 'saved'; }).catch(() => r.status = 'offline');
+}
+
 // ---------- Game state ----------
 let state = 'title', score, lives, level, player, torps, enemies, eShots, pickups, particles = [];
 let myDrone = null, droneRocket = null, droneAmmo = 1; // our air drone (W): rocket, then the drone itself
@@ -347,6 +375,7 @@ function allyBox(i) { return { x: player.x - 64, y: i === 0 ? Math.max(SURFACE +
 
 function reset() {
   score = 0; lives = ship().lives; level = 1; kills = 0; allies = 0;
+  startRun();
   player = { x: 80, y: H / 2, vx: 0, vy: 0, cool: 0, inv: 0, double: 0, jam: 0, up: false, ciws: 0, ciwsA: -0.9, threat: Infinity, beepT: 0 };
   startLevel();
 }
@@ -505,8 +534,8 @@ function bubbleBurst() {
     if (s.type === 'torp') { // turned away, keeps its speed
       const v = Math.hypot(s.vx, s.vy || 0), h = Math.atan2(dy, dx);
       s.vx = Math.cos(h) * v; s.vy = Math.sin(h) * v; s.a = h - Math.PI;
-    } else if (s.type === 'charge') { s.dead = true; sfx.pop(s.x, s.y); score += 5; }
-    else if (s.type === 'brk') { s.dead = true; boom(s.x + 6, s.y + 2, false); score += 5; }
+    } else if (s.type === 'charge') { s.dead = true; sfx.pop(s.x, s.y); score += 5; scored('charge'); }
+    else if (s.type === 'brk') { s.dead = true; boom(s.x + 6, s.y + 2, false); score += 5; scored('brk'); }
   }
 }
 
@@ -819,7 +848,7 @@ function swim(e) { // apply the steering: vx is used with the scroll on the next
 function damagePlayer() {
   if (player.inv > 0) return;
   lives--; player.inv = 150; boom(player.x + 46, player.y + 24); sfx.die(player.x + 46);
-  if (lives <= 0) { state = 'over'; sfx.lose(); }
+  if (lives <= 0) { state = 'over'; sfx.lose(); finishRun(); }
 }
 
 function killEnemy(e, safe) { // safe: the swimmer's bomb can't hurt the sub (bubble screen)
@@ -842,7 +871,7 @@ function killEnemy(e, safe) { // safe: the swimmer's bomb can't hurt the sub (bu
   }
   if (e.type === 'octo') for (let i = 0; i < 10; i++) // ink cloud
     particles.push({ kind: 'smoke', x: e.x + e.w / 2 + rnd(-6, 6), y: e.y + e.h / 2 + rnd(-6, 6), vx: rnd(-0.4, 0.4), vy: rnd(-0.3, 0.3), life: 90, max: 90, size: rnd(6, 12), color: '#2a0f3a' });
-  score += e.pts * level; coins++; save();
+  score += e.pts * level; scored(e.type); coins++; save();
   if (Math.random() < 0.15) pickups.push({ type: 'star', x: e.x + e.w / 2 - 10, y: e.y + e.h / 2 - 10, w: 20, h: 20 });
   // Every 10 kills: a new ally sub (max 2), then extra lives
   if (++kills % 10 === 0) {
@@ -892,9 +921,10 @@ function update() {
   });
   particles = particles.filter(p => p.life > 0);
   if (state === 'title') { camX += 0.4; return; }
-  if (state === 'next' && --nextTimer <= 0) { level++; startLevel(); state = 'brief'; briefT = BRIEF_TIME; tone(880, 0.15, 'sine', 0.06); setTimeout(() => tone(1320, 0.2, 'sine', 0.06), 160); }
+  if (state === 'next' && --nextTimer <= 0) { scored('L'); level++; startLevel(); state = 'brief'; briefT = BRIEF_TIME; tone(880, 0.15, 'sine', 0.06); setTimeout(() => tone(1320, 0.2, 'sine', 0.06), 160); }
   if (state === 'brief' && --briefT <= 0) state = 'play';
   if (state !== 'play') { laserSound(false); ciwsSound(false); return; }
+  if (run) run.steps++; // play time, checked by api.py against the real clock
 
   camX += scroll; dist += scroll;
   if (flash && --flash.t <= 0) flash = null;
@@ -992,7 +1022,7 @@ function update() {
       target = enemies.find(e => !e.dead && x2 > e.x - 4 && x2 < e.x + e.w + 4 && y2 > e.y - 4 && y2 < e.y + e.h + 4); // beam is a few px wide
       if (target) break;
       const charge = eShots.find(sh => !sh.dead && (sh.type === 'charge' || sh.type === 'brk') && x2 > sh.x - 4 && x2 < sh.x + sh.w + 4 && y2 > sh.y - 4 && y2 < sh.y + sh.h + 4);
-      if (charge) { charge.dead = true; boom(charge.x + 5, charge.y + 7, false); sfx.hit(); score += 5; break; } // depth charges pop instantly
+      if (charge) { charge.dead = true; boom(charge.x + 5, charge.y + 7, false); sfx.hit(); score += 5; scored('charge'); break; } // depth charges pop instantly
     }
     laser = { x1, y1, x2, y2, hit: d <= LASER_RANGE };
     if (target && target.type !== 'rock') {
@@ -1042,11 +1072,11 @@ function update() {
       const m = eShots.find(m => m.type === 'asm' && !m.dead && Math.abs(m.x + m.w / 2 - b.x) < 7 && Math.abs(m.y + m.h / 2 - b.y) < 5);
       if (m) {
         b.dead = true; particles.push({ kind: 'spark', x: b.x, y: b.y, vx: rnd(-2, 2), vy: rnd(-2, 1), life: 10, max: 10, size: 1 });
-        if (++m.holes >= ASM_HITS) { m.dead = true; boom(m.x + m.w / 2, m.y + m.h / 2); shake = Math.max(shake, 5); score += 20; flash = { msg: 'MISSILE SPLASHED', t: 50 }; }
+        if (++m.holes >= ASM_HITS) { m.dead = true; boom(m.x + m.w / 2, m.y + m.h / 2); shake = Math.max(shake, 5); score += 20; scored('asm'); flash = { msg: 'MISSILE SPLASHED', t: 50 }; }
         break;
       }
       const s = eShots.find(s => s.type === 'sam' && !s.dead && Math.abs(s.x + s.w / 2 - b.x) < 6 && Math.abs(s.y + s.h / 2 - b.y) < 5);
-      if (s) { s.dead = b.dead = true; boom(s.x + s.w / 2, s.y + s.h / 2, false); score += 10; }
+      if (s) { s.dead = b.dead = true; boom(s.x + s.w / 2, s.y + s.h / 2, false); score += 10; scored('sam'); }
     }
     b.vy += 0.02; if (--b.life <= 0) b.dead = true;
   }
@@ -1377,7 +1407,7 @@ function update() {
     if (s.type === 'sam' || s.type === 'atr' || s.type === 'cm' || s.type === 'bcl') continue; // they only go after our weapons
     if (!s.dead && hit(s, playerBox())) { s.dead = true; damagePlayer(); }
     for (let i = allies - 1; i >= 0; i--) if (!s.dead && hit(s, allyBox(i))) { s.dead = true; allies--; boom(allyBox(i).x + 28, allyBox(i).y + 12); }
-    for (const t of torps) if (!s.dead && !t.dead && hit(s, t)) { s.dead = t.dead = true; boom(s.x, s.y, false); score += 5; }
+    for (const t of torps) if (!s.dead && !t.dead && hit(s, t)) { s.dead = t.dead = true; boom(s.x, s.y, false); score += 5; scored('shot'); }
   }
   eShots = eShots.filter(s => !s.dead && s.x > -30 && s.x < W + 30 && s.y < H);
 
@@ -1479,7 +1509,7 @@ function update() {
     p.x -= scroll;
     if (hit(p, playerBox())) {
       p.dead = true;
-      if (p.type === 'coin') { coins++; score += 5; save(); sfx.coin(); }
+      if (p.type === 'coin') { coins++; score += 5; scored('coin'); save(); sfx.coin(); }
       else if (p.type === 'life') { lives++; sfx.win(); flash = { msg: 'MEDEVAC CRATE: +1 LIFE', t: 90 }; }
       else { player.double = 600; sfx.power(); flash = { msg: 'RAPID RELOAD', t: 90 }; }
     }
@@ -2501,8 +2531,31 @@ function draw() {
 
   if (state === 'pause') drawHelp(true);
   if (state === 'brief') drawBrief();
-  if (state === 'over') { panel(0, H / 2 - 45, W, 100); text('SUB LOST - MISSION ' + level + ' FAILED', H / 2, 36, '#ff6b6b'); text('ENTER: redeploy    S: armory', H / 2 + 38, 18); }
+  if (state === 'over') drawOver();
   if (state === 'next') { panel(0, H / 2 - 45, W, 100); text('MISSION ' + level + ' ACCOMPLISHED', H / 2, 40, '#7f7'); text('Stand by: next mission, heavier resistance...', H / 2 + 38, 18, '#ffd700'); }
+}
+
+// Game over: final score, top 10 from api.py and the callsign entry
+function drawOver() {
+  const r = run || {}, mine = r.id && r.id.slice(0, 8);
+  ctx.fillStyle = 'rgba(2,12,26,0.85)'; ctx.fillRect(-20, -20, W + 40, H + 40); // dark veil, like the help page
+  text('SUB LOST - MISSION ' + level + ' FAILED', 74, 30, '#ff6b6b');
+  text('FINAL SCORE ' + (r.score ?? score), 102, 16, '#ffd700');
+  text('TOP 10 - HALL OF HONOR', 134, 13, '#7fdcff');
+  if (!board) text(r.status === 'sending' ? 'TRANSMITTING...' : 'NO LINK', 220, 13, '#8aa');
+  else if (!board.length) text('NO SCORES YET - BE THE FIRST', 220, 13, '#8aa');
+  else board.forEach((b, i) => {
+    const y = 156 + i * 17, c = mine && b.id === mine ? '#7f7' : '#dde';
+    text(i + 1 + '.', y, 13, c, 270, 'right'); text(b.name, y, 13, c, 285, 'left');
+    text(String(b.score), y, 13, c, 500, 'right'); text('M' + b.level, y, 13, c, 530, 'left');
+  });
+  const s = r.status, blink = T % 40 < 20 ? '_' : ' ';
+  if (s === 'name') text((r.rank <= 10 ? 'RANK ' + r.rank + '! ' : 'RANK ' + r.rank + ' - ') + 'ENTER CALLSIGN: ' + callsign + blink, 352, 16, '#7f7');
+  else if (s === 'sending') text('TRANSMITTING...', 352, 14, '#ffd700');
+  else if (s === 'saved') text(r.rank ? 'CALLSIGN LOGGED - RANK ' + r.rank : 'CALLSIGN LOGGED', 352, 14, '#7f7');
+  else if (s === 'rejected') text('SCORE REJECTED BY COMMAND', 352, 14, '#ff6b6b');
+  else if (s === 'offline') text('LEADERBOARD OFFLINE - START api.py', 352, 14, '#ff6b6b');
+  text(s === 'name' ? 'ENTER: confirm    ESC: skip' : 'ENTER: redeploy    S: armory', 392, 16);
 }
 
 // Game logic runs at a fixed 60 steps/second; drawing happens once per screen frame.
@@ -2528,6 +2581,15 @@ addEventListener('keydown', e => {
     if (e.key === 'ArrowDown') shopCursor = (shopCursor + 1) % SHIPS.length;
     if (e.key === 'Enter') shopSelect();
     if (e.key === 'Escape' || e.code === 'KeyS') state = 'title';
+    return;
+  }
+  if (state === 'over' && run && run.status === 'name') { // typing the callsign: keys are letters, not shortcuts
+    e.preventDefault();
+    if (T - run.t < 45 || (e.repeat && e.key !== 'Backspace')) return; // no stray keys from the last fight
+    if (e.key === 'Enter') submitName();
+    else if (e.key === 'Escape') run.status = 'skipped';
+    else if (e.key === 'Backspace') callsign = callsign.slice(0, -1);
+    else if (/^[a-zA-Z0-9 _.-]$/.test(e.key) && callsign.length < 12) callsign += e.key.toUpperCase();
     return;
   }
   if (e.key === 'Escape' && !e.repeat && (state === 'play' || state === 'pause')) { state = state === 'play' ? 'pause' : 'play'; for (const k in keys) keys[k] = false; tone(state === 'pause' ? 600 : 900, 0.08, 'sine', 0.05); return; }

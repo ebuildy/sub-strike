@@ -16,6 +16,16 @@ canvas and every sound is synthesized live.
 
 Open `index.html` in a browser (on macOS: `open index.html`). It works offline, with no server.
 
+For the leaderboard (top 10, callsign at game over), run the small Python server (no install needed) and play at
+http://localhost:8000:
+
+```sh
+python3 api.py
+```
+
+The game never sends its score: it sends a log of what you destroyed and when, and the server recomputes the score and
+checks it could really happen in the time you played.
+
 | Key | Action |
 |---|---|
 | ← ↑ → ↓ | Swim (the sub is heavy and keeps its momentum) |
