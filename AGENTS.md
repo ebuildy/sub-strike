@@ -142,6 +142,12 @@ kamikaze belugas.
     the mission: +1 life each ("MEDEVAC CRATE: +1 LIFE"). Tested: mission 5 with 2 lives starts with 3, with 3 stays 3;
     both crates dropped and were collected; none in mission 4. A `+` line in `NEWS` is drawn green like a weapon.
   - **Bosses at the end of missions 4 and 5:** see Bosses below.
+  - **Mission retries (`RETRIES = 3`, owner):** when the sub's hearts run out, one of 3 game lives is spent
+    (`retries--` in `damagePlayer`). With lives left, the lost screen shows "SUB LOST - MISSION n FAILED", "n LIVES
+    REMAINING" with hearts, and ENTER/tap (`redeploy()` -> `retryLevel()`) restarts **that mission** with a fresh sub,
+    full hearts and the score/kills/allies it started with (`lvlSave`, taken at the end of `startLevel`). With none left:
+    "GAME OVER - NO LIVES REMAINING", ENTER starts a new game at mission 1. These lives are **only shown on the lost
+    screen**, never on the HUD. The armory opened from the lost screen returns to it (`shopFrom`).
 
 - **Controls** (the owner uses an AZERTY keyboard; keep the action keys together under the left hand)
   - Action keys are read by physical position (`e.code`, `keys.KeyF`, `keys.Space`), so they are the

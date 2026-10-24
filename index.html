@@ -360,6 +360,8 @@ let state = 'title', score, lives, level, player, torps, enemies, eShots, pickup
 let myDrone = null, droneRocket = null, droneAmmo = 1; // our air drone (W): rocket, then the drone itself
 let bullets = [], laser = null, decoys = [], decoyCool = 0, bubbleAmmo = 5, bubbleCool = 0, missiles = [], hbombs = 8, airTimer = 0, whiteFlash = 0;
 let dashMsg = '', dashA = 0, dashRed = false; // dashRed: danger message (red), else info (orange) // bottom dashboard: last message and its show/hide amount (0..1)
+const RETRIES = 3; // lost subs per game: each one restarts the failed mission, then it's back to mission 1
+let retries = RETRIES, lvlSave, shopFrom = 'title'; // lvlSave: score/kills/allies at mission start, restored on a retry
 let camX = 0, dist, levelLen, scroll, spawnTimer, coinTimer, kills, allies, flash, nextTimer, shake = 0;
 const WARN_RANGE = 400, WARN_RED = 150; // threat warning: starts beeping at 400 px, red under 150 px
 const SUB_CM_LEVEL = 3, SUB_CM_RANGE = 220, SUB_CM_SAVE = 0.5; // enemy sub decoys: from level 3, reaction range (px), chance to try
@@ -376,9 +378,15 @@ const playerBox = () => ({ x: player.x + 4, y: player.y + 12, w: 88, h: 26 });
 function allyBox(i) { return { x: player.x - 64, y: i === 0 ? Math.max(SURFACE + 8, player.y - 34) : player.y + 48, w: 58, h: 26 }; } // the top one stays under water
 
 function reset() {
-  score = 0; lives = ship().lives; level = 1; kills = 0; allies = 0;
-  player = { x: 80, y: H / 2, vx: 0, vy: 0, cool: 0, inv: 0, double: 0, jam: 0, up: false, ciws: 0, ciwsA: -0.9, threat: Infinity, beepT: 0 };
-  startLevel();
+  score = 0; lives = ship().lives; level = 1; kills = 0; allies = 0; retries = RETRIES;
+  newPlayer(); startLevel();
+}
+function newPlayer() { player = { x: 80, y: H / 2, vx: 0, vy: 0, cool: 0, inv: 0, double: 0, jam: 0, up: false, ciws: 0, ciwsA: -0.9, threat: Infinity, beepT: 0 }; }
+
+// Sub lost: restart the failed mission with a fresh sub and the score it started with
+function retryLevel() {
+  ({ score, kills, allies } = lvlSave); lives = ship().lives;
+  newPlayer(); startLevel();
 }
 
 // Each level: longer, faster scrolling, more enemies that shoot more
@@ -397,6 +405,7 @@ function startLevel() {
   heartsLeft = level >= LIFE_LEVEL ? LIFE_DROPS : 0; nextHeart = levelLen * 0.3; // life pickups, at 30% and 65% of the mission
   belugaLeft = level < UNLOCK.swimmers ? 0 : MOBILE ? level - 1 : level * 2 - 3; belugaGap = (levelLen - 1000) / belugaLeft; nextBeluga = 300 + belugaGap * 0.4;
   enemies.push({ type: 'boat', x: W + 40, y: SURFACE - 24, w: 110, h: 40, hp: 3, pts: 40, fire: 120, rpA: -2.6 }); // a frigate opens every level
+  lvlSave = { score, kills, allies };
 }
 
 function boom(x, y, big = true) {
@@ -849,7 +858,7 @@ function swim(e) { // apply the steering: vx is used with the scroll on the next
 function damagePlayer() {
   if (player.inv > 0) return;
   lives--; player.inv = 150; boom(player.x + 46, player.y + 24); sfx.die(player.x + 46);
-  if (lives <= 0) { state = 'over'; sfx.lose(); }
+  if (lives <= 0) { state = 'over'; retries--; sfx.lose(); }
 }
 
 function killEnemy(e, safe) { // safe: the swimmer's bomb can't hurt the sub (bubble screen)
@@ -2546,9 +2555,18 @@ function draw() {
   if (state === 'pause') drawHelp(true);
   if (state === 'brief') drawBrief();
   if (state === 'over') {
-    panel(0, H / 2 - 45, W, 100); text('SUB LOST - MISSION ' + level + ' FAILED', H / 2, 36, '#ff6b6b');
-    if (MOBILE) { text('TAP to redeploy', H / 2 + 38, 18, '#7f7', W / 2 - 60); touchBtn(ARMORY_OVER, 'ARMORY'); }
-    else text('ENTER: redeploy    S: armory', H / 2 + 38, 18);
+    panel(0, H / 2 - 60, W, 130);
+    if (retries > 0) {
+      text('SUB LOST - MISSION ' + level + ' FAILED', H / 2 - 15, 36, '#ff6b6b');
+      text(retries + (retries > 1 ? ' LIVES' : ' LIFE') + ' REMAINING', H / 2 + 20, 20, '#ffd700');
+      for (let i = 0; i < retries; i++) drawHeart(W / 2 - (retries - 1) * 9 + i * 18, H / 2 + 28);
+    } else {
+      text('GAME OVER - NO LIVES REMAINING', H / 2 - 15, 36, '#ff6b6b');
+      text('FINAL SCORE ' + score + ' - MISSION ' + level, H / 2 + 20, 20, '#ffd700');
+    }
+    const act = retries > 0 ? 'retry mission ' + level : 'new game';
+    if (MOBILE) { text('TAP: ' + act, H / 2 + 58, 18, '#7f7', W / 2 - 60); touchBtn(ARMORY_OVER, 'ARMORY'); }
+    else text('ENTER: ' + act + '    S: armory', H / 2 + 58, 18);
   }
   if (state === 'next') { panel(0, H / 2 - 45, W, 100); text('MISSION ' + level + ' ACCOMPLISHED', H / 2, 40, '#7f7'); text('Stand by: next mission, heavier resistance...', H / 2 + 38, 18, '#ffd700'); }
 }
@@ -2575,7 +2593,7 @@ addEventListener('keydown', e => {
     if (e.key === 'ArrowUp') shopCursor = (shopCursor + SHIPS.length - 1) % SHIPS.length;
     if (e.key === 'ArrowDown') shopCursor = (shopCursor + 1) % SHIPS.length;
     if (e.key === 'Enter') shopSelect();
-    if (e.key === 'Escape' || e.code === 'KeyS') state = 'title';
+    if (e.key === 'Escape' || e.code === 'KeyS') state = shopFrom;
     return;
   }
   if (e.key === 'Escape' && !e.repeat && (state === 'play' || state === 'pause')) { state === 'play' ? pauseGame() : resumeGame(); return; }
@@ -2586,12 +2604,13 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyS' && state === 'play') { if (!e.repeat) fireHBomb(); return; }
   if (e.code === 'KeyD' && state === 'play') { if (!e.repeat) throwDecoys(); return; }
   if (e.code === 'KeyE' && state === 'play') { if (!e.repeat) bubbleBurst(); return; }
-  if (e.code === 'KeyS' && (state === 'title' || state === 'over')) { state = 'shop'; shopCursor = shipIdx; shopMsg = ''; return; }
-  if (e.key === 'Enter' && (state === 'title' || state === 'over')) { reset(); state = 'play'; }
+  if (e.code === 'KeyS' && (state === 'title' || state === 'over')) { shopFrom = state; state = 'shop'; shopCursor = shipIdx; shopMsg = ''; return; }
+  if (e.key === 'Enter' && (state === 'title' || state === 'over')) { redeploy(); state = 'play'; }
 });
 addEventListener('keyup', e => keys[e.code] = false);
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; }); // no stuck keys after alt-tab
 
+function redeploy() { state === 'over' && retries > 0 ? retryLevel() : reset(); } // title, or no lives left: new game
 function pauseGame() { state = 'pause'; for (const k in keys) keys[k] = false; stick.id = null; stick.x = stick.y = 0; tone(600, 0.08, 'sine', 0.05); }
 function resumeGame() { state = 'play'; tone(900, 0.08, 'sine', 0.05); }
 
@@ -2605,7 +2624,7 @@ const BTN = [ // logical px; on: shown from that mission
   { id: 'bubble', x: W - 72, y: H - 172, r: 26, c: '#dff6ff', on: 'bubbles' },
   { id: 'pause', x: 26, y: 74, r: 14, c: '#cde' },
 ];
-const ARMORY_TITLE = { x: W / 2 - 130, y: 416, w: 120, h: 26 }, ARMORY_OVER = { x: W / 2 + 40, y: H / 2 + 20, w: 120, h: 28 }, SHOP_BACK = { x: 20, y: 416, w: 100, h: 28 };
+const ARMORY_TITLE = { x: W / 2 - 130, y: 416, w: 120, h: 26 }, ARMORY_OVER = { x: W / 2 + 40, y: H / 2 + 38, w: 120, h: 28 }, SHOP_BACK = { x: 20, y: 416, w: 100, h: 28 };
 const held = {}, touchState = {}; // touch id -> button id; touch id -> state when it began
 const btnOn = b => !b.on || level >= UNLOCK[b.on];
 const inRect = (x, y, r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
@@ -2633,7 +2652,7 @@ function pressBtn(b, id) {
 function tap(x, y) { // menus
   goFullscreen();
   if (state === 'shop') {
-    if (inRect(x, y, SHOP_BACK)) { state = 'title'; return; }
+    if (inRect(x, y, SHOP_BACK)) { state = shopFrom; return; }
     const i = Math.floor((y - 95) / 58);
     if (x > 120 && x < W - 120 && i >= 0 && i < SHIPS.length && (y - 95) % 58 <= 50) {
       if (i === shopCursor) shopSelect(); else { shopCursor = i; tone(700, 0.05, 'sine', 0.05); }
@@ -2643,8 +2662,8 @@ function tap(x, y) { // menus
   if (state === 'pause') { resumeGame(); return; }
   if (state === 'brief') { state = 'play'; return; }
   if (state === 'title' || state === 'over') {
-    if (inRect(x, y, state === 'title' ? ARMORY_TITLE : ARMORY_OVER)) { state = 'shop'; shopCursor = shipIdx; shopMsg = ''; return; }
-    reset(); state = 'play';
+    if (inRect(x, y, state === 'title' ? ARMORY_TITLE : ARMORY_OVER)) { shopFrom = state; state = 'shop'; shopCursor = shipIdx; shopMsg = ''; return; }
+    redeploy(); state = 'play';
   }
 }
 
