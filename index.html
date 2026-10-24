@@ -2,29 +2,45 @@
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#021428">
 <title>Battle Beneath the Sea</title>
 <style>
   html, body { margin: 0; height: 100%; background: #021428; display: flex; align-items: center; justify-content: center; }
   /* Sky + water gradient lives in CSS (drawn by the GPU for free); the canvas is transparent on top.
      Sky ends at y=74/450 (16.4%), water goes from #3fb6e0 to #062a4f. */
   canvas { background: linear-gradient(to bottom, #6ec6ff 0%, #d8f3ff 16.4%, #3fb6e0 16.45%, #0f6aa0 49.8%, #062a4f 100%); border: 3px solid #e6c88a; border-radius: 8px; width: min(96vw, calc(94vh * 16 / 9)); height: auto; }
+  /* Touch devices: full screen, no border, no page scroll or zoom; portrait asks to rotate */
+  body.mobile { position: fixed; inset: 0; overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  body.mobile canvas { border: 0; border-radius: 0; width: min(100vw, calc(100vh * 16 / 9)); width: min(100vw, calc(100dvh * 16 / 9)); touch-action: none; }
+  #rotate { display: none; position: fixed; inset: 0; background: #021428; color: #ffa31a; font: bold 22px "Trebuchet MS", Verdana, sans-serif; text-align: center; align-items: center; justify-content: center; flex-direction: column; z-index: 9; }
+  #rotate b { font-size: 60px; color: #7f7; display: block; margin-bottom: 16px; }
+  @media (orientation: portrait) { body.mobile #rotate { display: flex; } }
 </style>
 </head>
 <body>
 <canvas id="c" width="1600" height="900"></canvas>
+<div id="rotate"><b>&#x21bb;</b>ROTATE DEVICE<br>LANDSCAPE ONLY</div>
 <script>
 const cv = document.getElementById('c'), ctx = cv.getContext('2d');
 const SCALE = 2; // render at 2x for crisp graphics
 const W = cv.width / SCALE, H = cv.height / SCALE;
 const SURFACE = 70; // y of the sea surface
 const keys = {};
+// Phone or tablet (touch is the main pointer; ?mobile=1 forces it for testing): touch controls, fewer
+// enemies, no laser and no air drone
+const MOBILE = /[?&]mobile=1/.test(location.search) || matchMedia('(pointer: coarse)').matches;
+const MOB_SPAWN = MOBILE ? 1.6 : 1; // spawn gaps are 1.6x longer on mobile
+if (MOBILE) document.body.classList.add('mobile');
 
 // ---------- Audio ----------
 // Everything goes through master -> compressor (loud explosions don't clip). Effects also feed a
 // dark generated reverb, which gives the underwater echo, and are panned by their screen x.
 let ac = null, master = null, verb = null, noiseBuf = null, musicStep = 0, musicTimer = 0;
 function initAudio() {
-  if (ac) return;
+  if (ac) { if (ac.state === 'suspended') ac.resume(); return; } // mobile browsers suspend audio until a tap
   ac = new (window.AudioContext || window.webkitAudioContext)();
   const comp = ac.createDynamicsCompressor();
   comp.threshold.value = -16; comp.knee.value = 10; comp.ratio.value = 4; comp.attack.value = 0.003; comp.release.value = 0.25;
@@ -365,7 +381,7 @@ function startLevel() {
   flash = { msg: 'MISSION ' + level + ' - WEAPONS FREE', t: 120 };
   if (level >= LIFE_LEVEL && lives < 3) { lives++; flash = { msg: 'MISSION ' + level + ' - RESUPPLY: +1 LIFE', t: 120 }; } // hard missions: a helping hand
   heartsLeft = level >= LIFE_LEVEL ? LIFE_DROPS : 0; nextHeart = levelLen * 0.3; // life pickups, at 30% and 65% of the mission
-  belugaLeft = level >= UNLOCK.swimmers ? level * 2 - 3 : 0; belugaGap = (levelLen - 1000) / belugaLeft; nextBeluga = 300 + belugaGap * 0.4;
+  belugaLeft = level < UNLOCK.swimmers ? 0 : MOBILE ? level - 1 : level * 2 - 3; belugaGap = (levelLen - 1000) / belugaLeft; nextBeluga = 300 + belugaGap * 0.4;
   enemies.push({ type: 'boat', x: W + 40, y: SURFACE - 24, w: 110, h: 40, hp: 3, pts: 40, fire: 120, rpA: -2.6 }); // a frigate opens every level
 }
 
@@ -443,7 +459,7 @@ function megaBoom(x, y, victim) {
 // mines and depth charges go for the nearest decoy instead of the sub and blow up on it.
 const DECOY_RANGE = 400, DECOY_LIFE = 360, DECOY_COOL = 300; // px, steps (6 s), steps (5 s): unlimited, reload time
 // Progressive missions (owner: level 1 must stay simple): weapons and threats unlock with the mission number
-const UNLOCK = { decoys: 2, swimmers: 2, bubbles: 3, drone: 3 };
+const UNLOCK = { decoys: 2, swimmers: 2, bubbles: 3, drone: MOBILE ? Infinity : 3 }; // no air drone on mobile
 function locked(what) { // true (with a buzz and a message) while that weapon is not issued yet
   if (level >= UNLOCK[what]) return false;
   sfx.denied(); flash = { msg: 'NOT ISSUED BEFORE MISSION ' + UNLOCK[what], t: 50 };
@@ -453,7 +469,7 @@ function locked(what) { // true (with a buzz and a message) while that weapon is
 const NEWS = {
   2: [['D', 'DECOYS ISSUED: lure torpedoes, mines and whales'], ['!', 'NEW THREAT: KAMIKAZE WHALES with bombs'],
       ['!', 'NEW THREAT: COMBAT SWIMMERS from ships and helos'], ['!', 'NEW THREAT: ELECTRIC EELS jam your weapons']],
-  3: [['E', 'BUBBLE SCREEN ISSUED: blasts close threats away'], ['W', 'AIR DRONE ISSUED: kills drones, rams helos'],
+  3: [['E', 'BUBBLE SCREEN ISSUED: blasts close threats away'], ...MOBILE ? [] : [['W', 'AIR DRONE ISSUED: kills drones, rams helos']],
       ['!', 'ENEMY SUBS now deploy decoys']],
   4: [['!', 'HEAVIER RESISTANCE: more and faster enemies'], ['!', 'BOSS: TYPHOON-CLASS SUB at the end of the mission']],
   5: [['+', 'RESUPPLY: +1 life at start when under 3 lives'], ['+', '2 MEDEVAC CRATES per mission: +1 life each'],
@@ -894,6 +910,7 @@ function update() {
   if (state === 'title') { camX += 0.4; return; }
   if (state === 'next' && --nextTimer <= 0) { level++; startLevel(); state = 'brief'; briefT = BRIEF_TIME; tone(880, 0.15, 'sine', 0.06); setTimeout(() => tone(1320, 0.2, 'sine', 0.06), 160); }
   if (state === 'brief' && --briefT <= 0) state = 'play';
+  if (MOBILE && state === 'play' && innerHeight > innerWidth) pauseGame(); // turned to portrait
   if (state !== 'play') { laserSound(false); ciwsSound(false); return; }
 
   camX += scroll; dist += scroll;
@@ -903,8 +920,8 @@ function update() {
 
   // Player: free swimming in 4 directions
   const sp = ship().speed * 0.5;
-  const tx = (keys.ArrowRight ? sp : 0) - (keys.ArrowLeft ? sp : 0);
-  const ty = (keys.ArrowDown ? sp : 0) - (keys.ArrowUp ? sp : 0);
+  const tx = ((keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0) || stick.x) * sp; // keys, or the touch stick (analog)
+  const ty = ((keys.ArrowDown ? 1 : 0) - (keys.ArrowUp ? 1 : 0) || stick.y) * sp;
   player.vx += (tx - player.vx) * 0.05; player.vy += (ty - player.vy) * 0.05; // heavy sub: inertia
   player.x = Math.max(10, Math.min(W * 0.65, player.x + player.vx));
   player.y = Math.max(SURF_Y, Math.min(groundY(camX + player.x + 46) - 40, player.y + player.vy));
@@ -982,7 +999,7 @@ function update() {
   }
   // Laser (hold L): fires along the sub's tilt, stops at the first thing it touches
   laser = null;
-  if (keys.KeyF && !player.jam) {
+  if (keys.KeyF && !player.jam && !MOBILE) { // no laser on mobile
     const a = player.vy * 0.1, c = Math.cos(a), sn = Math.sin(a), cx = player.x + 46, cy = player.y + 24;
     const x1 = cx + 48 * c + 2 * sn, y1 = cy + 48 * sn - 2 * c; // nose of the sub, rotated with it
     let d = 0, target = null, x2 = x1, y2 = y1;
@@ -1056,8 +1073,8 @@ function update() {
   if (dist < levelLen - 700) {
     if (belugaLeft > 0 && dist >= nextBeluga) { spawnBeluga(); belugaLeft--; nextBeluga += belugaGap; }
     if (heartsLeft > 0 && dist >= nextHeart) { heartsLeft--; nextHeart += levelLen * 0.35; pickups.push({ type: 'life', x: W + 20, y: rnd(SURFACE + 60, H - 130), w: 18, h: 16 }); }
-    if (--spawnTimer <= 0) { spawnEnemy(); const base = Math.max(140, 340 - level * 30); spawnTimer = rnd(base * 0.7, base * 1.3); }
-    if (--airTimer <= 0) { spawnAir(); airTimer = Math.max(450, 1000 - level * 90) * rnd(0.8, 1.2); }
+    if (--spawnTimer <= 0) { spawnEnemy(); const base = Math.max(140, 340 - level * 30); spawnTimer = rnd(base * 0.7, base * 1.3) * MOB_SPAWN; }
+    if (--airTimer <= 0) { spawnAir(); airTimer = Math.max(450, 1000 - level * 90) * rnd(0.8, 1.2) * MOB_SPAWN; }
     if (--coinTimer <= 0) {
       const by = rnd(SURFACE + 70, H - 120);
       for (let i = 0; i < 5; i++) pickups.push({ type: 'coin', x: W + 20 + i * 26, y: by - Math.sin(i / 4 * Math.PI) * 35, w: 14, h: 14 });
@@ -2250,7 +2267,7 @@ function draw3D(mesh, cx, cy, s, yaw, pitch) {
 
 // Threat recognition cards on the welcome screen (2D art from the game); objects made once
 const ROSTER = [
-  { name: 'NAVAL MINE', note: 'Proximity fuse. Laser it', e: { x: 0, y: 0 }, f: drawMine, bx: -2, by: -2, w: 24, h: 24 },
+  { name: 'NAVAL MINE', note: MOBILE ? 'Proximity fuse. Torpedo it' : 'Proximity fuse. Laser it', e: { x: 0, y: 0 }, f: drawMine, bx: -2, by: -2, w: 24, h: 24 },
   { name: 'OCTOPUS', note: '2 torpedoes. Ink cloud', e: { x: 0, y: 0, t: 0 }, f: drawOcto, bx: 0, by: 0, w: 22, h: 16 },
   { name: 'ELECTRIC EEL', m: 2, note: 'EMP jams weapons 10 s', e: { x: 0, y: 0, t: 0 }, f: drawEel, bx: 0, by: -4, w: 80, h: 22 },
   { name: 'KAMIKAZE WHALE', m: 2, note: 'Bomb on back, dodges', e: { x: 0, y: 0, t: 0, vy: 0, face: -1, bomb: true }, f: drawBeluga, bx: -4, by: -8, w: 58, h: 36 },
@@ -2260,7 +2277,7 @@ const ROSTER = [
   { name: 'ANTI-SHIP MISSILE', note: 'Hits surfaced subs: CIWS', e: { x: 0, y: 0, w: 14, h: 4, a: Math.PI }, f: drawASM, bx: -2, by: -4, w: 18, h: 12 },
 ];
 const SHOWCASE = [
-  { name: 'YOUR BOAT: SUFFREN-CLASS SSN', note: 'Torpedoes, laser, H-bomb, CIWS', mesh: 'mine', s: 1.9 },
+  { name: 'YOUR BOAT: SUFFREN-CLASS SSN', note: MOBILE ? 'Torpedoes, H-bomb, CIWS' : 'Torpedoes, laser, H-bomb, CIWS', mesh: 'mine', s: 1.9 },
   { name: 'ENEMY ATTACK SUB', note: 'Homing torpedoes. Decoys from mission 3', mesh: 'enemy', s: 1.9 },
   { name: 'ENEMY FRIGATE + RAMPART', note: 'Depth charges, drones, SAMs, missiles', mesh: 'frigate', s: 1.75 },
 ];
@@ -2295,10 +2312,19 @@ function drawHelp(paused) { // full-screen welcome page (threat recognition); al
     if (r.m) text('FROM MISSION ' + r.m, cy + 52, 9, '#ff8a80', cx + 68, 'left');
     ctx.restore();
   });
-  text('← ↑ → ↓ steer  SPACE torpedo  F laser  D decoys  E bubbles  S H-bomb  W drone', 358, 14);
-  text('Surfaced: SPACE = CIWS anti-air gun   //   D issued from mission 2, E and W from mission 3', 376, 11, '#bff');
-  if (paused) { text('GAME PAUSED', 408, 24, '#ffa31a'); text('ESC or ENTER to resume', 432, 16, '#7f7'); }
-  else {
+  if (MOBILE) {
+    text('LEFT THUMB steer   FIRE torpedo   H-BOMB guided bomb   DECOY   BUBBLE', 358, 14);
+    text('Surfaced: FIRE = CIWS anti-air gun   //   DECOY issued from mission 2, BUBBLE from mission 3', 376, 11, '#bff');
+  } else {
+    text('← ↑ → ↓ steer  SPACE torpedo  F laser  D decoys  E bubbles  S H-bomb  W drone', 358, 14);
+    text('Surfaced: SPACE = CIWS anti-air gun   //   D issued from mission 2, E and W from mission 3', 376, 11, '#bff');
+  }
+  if (paused) { text('GAME PAUSED', 408, 24, '#ffa31a'); text(MOBILE ? 'TAP to resume' : 'ESC or ENTER to resume', 432, 16, '#7f7'); }
+  else if (MOBILE) {
+    text('TAP to deploy', 408, 24, '#7f7');
+    touchBtn(ARMORY_TITLE, 'ARMORY');
+    drawCoin(W / 2 + 40, 427); text(coins + ' coins', 432, 15, '#ffd700', W / 2 + 52, 'left');
+  } else {
     text('ENTER to deploy', 408, 24, '#7f7');
     text('S for the ARMORY', 432, 15, '#7ff', W / 2 - 70);
     drawCoin(W / 2 + 40, 427); text(coins + ' coins', 432, 15, '#ffd700', W / 2 + 52, 'left');
@@ -2318,7 +2344,7 @@ function drawBrief() { // mission briefing: what is new in this mission
     text(k, y + 2, 15, threat ? '#ff6a60' : '#7f7', W / 2 - 208);
     text(line, y + 1, 15, threat ? '#ff8a80' : '#ffb347', W / 2 - 184, 'left');
   });
-  text('ENTER to deploy   (auto in ' + Math.ceil(briefT / 60) + ' s)', y0 + h - 22, 16, '#7f7');
+  text((MOBILE ? 'TAP' : 'ENTER') + ' to deploy   (auto in ' + Math.ceil(briefT / 60) + ' s)', y0 + h - 22, 16, '#7f7');
 }
 
 function drawShop() {
@@ -2339,7 +2365,8 @@ function drawShop() {
     else { ctx.fillStyle = coins >= s.price ? '#ffd700' : '#f66'; ctx.fillText(s.price + ' coins', W - 135, y + 31); }
   });
   text(shopMsg, 405, 18, '#7ff');
-  text('UP/DOWN: select   ENTER: buy/equip   ESC: back', 435, 14, '#fff');
+  if (MOBILE) { text('TAP a sub to select, TAP again to buy/equip', 435, 14, '#fff', W / 2 + 40); touchBtn(SHOP_BACK, 'BACK'); }
+  else text('UP/DOWN: select   ENTER: buy/equip   ESC: back', 435, 14, '#fff');
 }
 
 function shopSelect() {
@@ -2441,6 +2468,7 @@ function draw() {
   drawCoin(16, 38); text(coins, 44, 16, '#ffd700', 28, 'left');
   if (lives <= 10) for (let i = 0; i < lives; i++) drawHeart(W - 15 - i * 16, 12);
   else { drawHeart(W - 45, 12); text('x' + lives, 22, 16, '#ff8a8a', W - 10, 'right'); } // many lives: compact
+  if (!MOBILE) { // on mobile the touch buttons show the ammo
   text('S', 66, 13, '#fff', 10, 'left');
   for (let i = 0; i < 8; i++) {
     ctx.globalAlpha = (i < hbombs ? 1 : 0.25) * (player.jam ? 0.4 : 1);
@@ -2467,6 +2495,7 @@ function draw() {
     ctx.fillStyle = '#fff'; ctx.fillRect(28 + i * 11, 95.5, 1.5, 1.5);
   }
   ctx.globalAlpha = 1;
+  }
   }
   text('ally in: ' + (10 - kills % 10) + ' kills', 44, 12, '#fff', W - 10, 'right');
   // Level progress bar
@@ -2499,9 +2528,14 @@ function draw() {
     ctx.globalAlpha = 1;
   }
 
+  if (MOBILE && (state === 'play' || state === 'brief')) drawTouch();
   if (state === 'pause') drawHelp(true);
   if (state === 'brief') drawBrief();
-  if (state === 'over') { panel(0, H / 2 - 45, W, 100); text('SUB LOST - MISSION ' + level + ' FAILED', H / 2, 36, '#ff6b6b'); text('ENTER: redeploy    S: armory', H / 2 + 38, 18); }
+  if (state === 'over') {
+    panel(0, H / 2 - 45, W, 100); text('SUB LOST - MISSION ' + level + ' FAILED', H / 2, 36, '#ff6b6b');
+    if (MOBILE) { text('TAP to redeploy', H / 2 + 38, 18, '#7f7', W / 2 - 60); touchBtn(ARMORY_OVER, 'ARMORY'); }
+    else text('ENTER: redeploy    S: armory', H / 2 + 38, 18);
+  }
   if (state === 'next') { panel(0, H / 2 - 45, W, 100); text('MISSION ' + level + ' ACCOMPLISHED', H / 2, 40, '#7f7'); text('Stand by: next mission, heavier resistance...', H / 2 + 38, 18, '#ffd700'); }
 }
 
@@ -2530,7 +2564,7 @@ addEventListener('keydown', e => {
     if (e.key === 'Escape' || e.code === 'KeyS') state = 'title';
     return;
   }
-  if (e.key === 'Escape' && !e.repeat && (state === 'play' || state === 'pause')) { state = state === 'play' ? 'pause' : 'play'; for (const k in keys) keys[k] = false; tone(state === 'pause' ? 600 : 900, 0.08, 'sine', 0.05); return; }
+  if (e.key === 'Escape' && !e.repeat && (state === 'play' || state === 'pause')) { state === 'play' ? pauseGame() : resumeGame(); return; }
   if (state === 'pause') { if (e.key === 'Enter') state = 'play'; return; }
   if (state === 'brief') { if (e.key === 'Enter') state = 'play'; return; }
   if (state === 'play' && player.jam && !e.repeat && (['Space', 'KeyF', 'KeyS'].includes(e.code) || e.key.toLowerCase() === 'w')) sfx.denied();
@@ -2543,6 +2577,137 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => keys[e.code] = false);
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; }); // no stuck keys after alt-tab
+
+function pauseGame() { state = 'pause'; for (const k in keys) keys[k] = false; stick.id = null; stick.x = stick.y = 0; tone(600, 0.08, 'sine', 0.05); }
+function resumeGame() { state = 'play'; tone(900, 0.08, 'sine', 0.05); }
+
+// ---------- Touch controls (mobile) ----------
+// Left thumb: floating stick anywhere on the left side. Right thumb: weapon buttons. Menus: tap.
+const stick = { x: 0, y: 0, id: null, ox: 0, oy: 0 }, STICK_R = 44; // x, y: -1..1
+const BTN = [ // logical px; on: shown from that mission
+  { id: 'fire', x: W - 72, y: H - 78, r: 42, c: '#ff6a3a' },
+  { id: 'bomb', x: W - 168, y: H - 46, r: 28, c: '#ffa31a' },
+  { id: 'decoy', x: W - 158, y: H - 128, r: 26, c: '#7ff', on: 'decoys' },
+  { id: 'bubble', x: W - 72, y: H - 172, r: 26, c: '#dff6ff', on: 'bubbles' },
+  { id: 'pause', x: 26, y: 74, r: 14, c: '#cde' },
+];
+const ARMORY_TITLE = { x: W / 2 - 130, y: 416, w: 120, h: 26 }, ARMORY_OVER = { x: W / 2 + 40, y: H / 2 + 20, w: 120, h: 28 }, SHOP_BACK = { x: 20, y: 416, w: 100, h: 28 };
+const held = {}, touchState = {}; // touch id -> button id; touch id -> state when it began
+const btnOn = b => !b.on || level >= UNLOCK[b.on];
+const inRect = (x, y, r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+function touchXY(t) { const r = cv.getBoundingClientRect(); return [(t.clientX - r.left) / r.width * W, (t.clientY - r.top) / r.height * H]; }
+
+function goFullscreen() { // Android: full screen + landscape lock. iPhone Safari has no fullscreen API (Add to Home Screen instead)
+  const el = document.documentElement, rq = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (!rq || document.fullscreenElement || document.webkitFullscreenElement) return;
+  try {
+    const p = rq.call(el, { navigationUI: 'hide' });
+    if (p && p.then) p.then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape')).catch(() => {});
+  } catch {}
+}
+
+function pressBtn(b, id) {
+  held[id] = b.id; b.t = 8; // b.t: pressed glow
+  if (b.id === 'pause') { pauseGame(); return; }
+  if (player.jam && (b.id === 'fire' || b.id === 'bomb')) sfx.denied();
+  if (b.id === 'fire') keys.Space = true;
+  if (b.id === 'bomb') fireHBomb();
+  if (b.id === 'decoy') throwDecoys();
+  if (b.id === 'bubble') bubbleBurst();
+}
+
+function tap(x, y) { // menus
+  goFullscreen();
+  if (state === 'shop') {
+    if (inRect(x, y, SHOP_BACK)) { state = 'title'; return; }
+    const i = Math.floor((y - 95) / 58);
+    if (x > 120 && x < W - 120 && i >= 0 && i < SHIPS.length && (y - 95) % 58 <= 50) {
+      if (i === shopCursor) shopSelect(); else { shopCursor = i; tone(700, 0.05, 'sine', 0.05); }
+    }
+    return;
+  }
+  if (state === 'pause') { resumeGame(); return; }
+  if (state === 'brief') { state = 'play'; return; }
+  if (state === 'title' || state === 'over') {
+    if (inRect(x, y, state === 'title' ? ARMORY_TITLE : ARMORY_OVER)) { state = 'shop'; shopCursor = shipIdx; shopMsg = ''; return; }
+    reset(); state = 'play';
+  }
+}
+
+if (MOBILE) {
+  addEventListener('touchstart', e => {
+    e.preventDefault(); initAudio();
+    for (const t of e.changedTouches) {
+      touchState[t.identifier] = state;
+      if (state !== 'play') continue; // menus act on release (fullscreen needs a touchend)
+      const [x, y] = touchXY(t);
+      const b = BTN.find(b => btnOn(b) && Math.hypot(x - b.x, y - b.y) < b.r + 10);
+      if (b) pressBtn(b, t.identifier);
+      else if (x < W * 0.55 && stick.id === null) { stick.id = t.identifier; stick.ox = x; stick.oy = y; stick.x = stick.y = 0; }
+    }
+  }, { passive: false });
+  addEventListener('touchmove', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) if (t.identifier === stick.id) {
+      const [x, y] = touchXY(t);
+      let dx = x - stick.ox, dy = y - stick.oy, d = Math.hypot(dx, dy);
+      if (d > STICK_R) { stick.ox += dx * (1 - STICK_R / d); stick.oy += dy * (1 - STICK_R / d); dx *= STICK_R / d; dy *= STICK_R / d; d = STICK_R; } // the base follows the thumb
+      const k = d < 6 ? 0 : 1 / STICK_R; // small dead zone
+      stick.x = dx * k; stick.y = dy * k;
+    }
+  }, { passive: false });
+  const release = e => {
+    e.preventDefault(); initAudio();
+    for (const t of e.changedTouches) {
+      const id = t.identifier, began = touchState[id];
+      delete touchState[id];
+      if (id === stick.id) { stick.id = null; stick.x = stick.y = 0; }
+      if (held[id] === 'fire') { delete held[id]; if (!Object.values(held).includes('fire')) keys.Space = false; }
+      else if (held[id]) delete held[id];
+      else if (e.type === 'touchend' && began === state && state !== 'play') tap(...touchXY(t)); // a tap that began in this menu
+    }
+  };
+  addEventListener('touchend', release, { passive: false });
+  addEventListener('touchcancel', release, { passive: false });
+  document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'play') pauseGame(); });
+}
+
+function touchBtn(r, label) { // menu button
+  ctx.fillStyle = 'rgba(10,40,60,0.85)'; ctx.fillRect(r.x, r.y, r.w, r.h);
+  ctx.strokeStyle = '#7ff'; ctx.lineWidth = 1.5; ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+  text(label, r.y + r.h / 2 + 5, 15, '#7ff', r.x + r.w / 2);
+}
+
+function drawTouch() { // stick and weapon buttons over the game
+  const sx = stick.id !== null ? stick.ox : 90, sy = stick.id !== null ? stick.oy : H - 90;
+  ctx.globalAlpha = stick.id !== null ? 0.55 : 0.22;
+  ctx.fillStyle = 'rgba(10,20,30,0.5)'; ctx.strokeStyle = '#cde'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(sx, sy, STICK_R, 0, 7); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#cde'; ctx.beginPath(); ctx.arc(sx + stick.x * STICK_R, sy + stick.y * STICK_R, 16, 0, 7); ctx.fill();
+  if (stick.id === null) text('STEER', sy + STICK_R + 14, 10, '#cde', sx);
+  ctx.globalAlpha = 1;
+  for (const b of BTN) {
+    if (!btnOn(b)) continue;
+    if (b.t > 0) b.t--;
+    const down = b.t > 0 || (b.id === 'fire' && keys.Space);
+    const off = b.id === 'fire' ? player.jam || (player.up && player.ciws < 1) : b.id === 'bomb' ? player.jam || hbombs <= 0 || missiles.length
+      : b.id === 'decoy' ? decoyCool > 0 : b.id === 'bubble' ? bubbleAmmo <= 0 || bubbleCool > 0 : false;
+    ctx.globalAlpha = off ? 0.35 : 0.85;
+    ctx.fillStyle = down ? 'rgba(255,255,255,0.3)' : 'rgba(10,20,30,0.5)'; ctx.strokeStyle = b.c; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, 7); ctx.fill(); ctx.stroke();
+    if (b.id === 'fire') text(player.up ? 'CIWS' : 'FIRE', b.y + 6, 16, b.c, b.x);
+    else if (b.id === 'bomb') { drawHBomb({ x: b.x - 2.5, y: b.y - 19 }); text('H-BOMB', b.y + 8, 9, b.c, b.x); text(hbombs, b.y + 19, 9, '#fff', b.x); }
+    else if (b.id === 'decoy') {
+      drawDecoy({ x: b.x - 5, y: b.y - 12, vy: 0 }); drawDecoy({ x: b.x + 5, y: b.y - 10, vy: 1 }); text('DECOY', b.y + 10, 9, b.c, b.x);
+      if (decoyCool) { ctx.strokeStyle = '#ffb300'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r - 3, -Math.PI / 2, -Math.PI / 2 + 6.283 * (1 - decoyCool / DECOY_COOL)); ctx.stroke(); } // reload
+    } else if (b.id === 'bubble') {
+      ctx.strokeStyle = b.c; ctx.lineWidth = 1.2;
+      for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(b.x - 7 + i * 7, b.y - 9 + (i % 2) * 3, 3.5, 0, 7); ctx.stroke(); }
+      text('BUBBLE', b.y + 8, 9, b.c, b.x); text(bubbleAmmo, b.y + 19, 9, '#fff', b.x);
+    } else { ctx.fillStyle = b.c; ctx.fillRect(b.x - 5, b.y - 6, 3.5, 12); ctx.fillRect(b.x + 1.5, b.y - 6, 3.5, 12); } // pause
+  }
+  ctx.globalAlpha = 1;
+}
 
 requestAnimationFrame(loop);
 </script>

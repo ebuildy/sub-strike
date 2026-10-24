@@ -164,6 +164,19 @@ kamikaze belugas.
     (lofted hull, superstructure, pyramid mast, hangar, radome, Rampart) with `box3`. `draw3D(mesh, cx, cy, scale,
     yaw, pitch)` rotates, flat-shades (two-sided Lambert), sorts faces far to near and fills them; no culling.
     The models sway ±0.32 rad around a 3/4 view (pitch 0.22) instead of spinning. Cost: about 1 ms per frame.
+- **Mobile / tablet (`MOBILE`):** detected by `matchMedia('(pointer: coarse)')` (or `?mobile=1` to test on desktop);
+  adds `body.mobile`. Landscape and full screen only: the canvas fills the screen (16:9, letterboxed), the first tap
+  in a menu calls `goFullscreen()` (Android: fullscreen + landscape lock; iPhone Safari has no fullscreen API), and
+  portrait shows the `#rotate` overlay and pauses the game. Hiding the page also pauses it.
+  - **Easier:** spawn gaps (sea and air) x`MOB_SPAWN = 1.6`, belugas `level - 1` instead of `2 × level − 3`. No laser
+    and no air drone (`UNLOCK.drone = Infinity`, the NEWS line and laser mentions are left out). Enemy drones stay.
+    Tested on mission 2: 10 sea / 3 air spawns vs 15 / 5 on desktop.
+  - **Touch controls** (bottom of the script): a floating stick anywhere on the left 55% (`stick`, analog -1..1,
+    mixed into `tx/ty`), and round buttons on the right (`BTN`): FIRE (hold = `keys.Space`, so CIWS when surfaced),
+    H-BOMB, DECOY (mission 2+), BUBBLE (mission 3+), plus a pause button top left. `drawTouch()` draws them; the
+    keyboard HUD weapon rows are hidden on mobile because the buttons show the ammo.
+  - **Menus:** taps act on touchend, only for a touch that began in that same state (holding FIRE when the sub dies
+    must not redeploy). `touchBtn()` draws the ARMORY / BACK buttons; in the shop, tap a row to select, again to buy.
 - **Surfacing and the CIWS:** the sub can rise to `SURF_Y = SURFACE - 25`, where the sail and the top of
   the hull stick out and the sub floats flat (`player.up` once `player.y < SURFACE - 16`).
   - A Phalanx CIWS (`player.ciws` 0..1, about 0.7 s) rises out of a hatch on the bow deck, at
