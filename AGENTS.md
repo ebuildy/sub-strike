@@ -54,7 +54,9 @@ kamikaze belugas.
      do not copy that copyrighted melody): 6/8 in D minor, `BM_STEP = 11` steps per eighth (~110 BPM), Dm-Dm-Bb-C-Dm-Gm-A-A.
      Cello eighths, low strings, big drum and brass hits on 1 and 4, snare, cymbal, a drum roll in bar 8, and a lead
      (`BM_LEAD`). Voices go through `syn()` (filtered oscillator) to the music bus `mbus` at `BM_VOL = 0.4` (owner: softer).
-   - The laser is a persistent oscillator, `laserSound(on)`. The CIWS is another persistent sound,
+   - Storm sounds: `sfx.thunder(x, delay)` (crack plus rolling rumble) and `rainSound(v)`, a persistent filtered-noise hiss
+    whose volume follows `storm` (muted on pause and outside play/briefing).
+  - The laser is a persistent oscillator, `laserSound(on)`. The CIWS is another persistent sound,
      `ciwsSound(on)`: noise chopped by a 75 Hz sawtooth LFO (one crack per round) plus a buzzing sawtooth,
      spin-up on start and a spin-down whine on stop. `sfx.surface`, `sfx.dive` and `sfx.raise` go with it.
 3. **Shop**
@@ -345,6 +347,18 @@ kamikaze belugas.
   octopus: red-brown mottled mantle swept back, gold eye with a slit pupil, tapering curled arms with suckers
   (`GR.octo`). The combat swimmer wears black fins, a dark tactical mask and a rebreather.
 - **Damaged enemies** smoke, leak bubbles, get knocked back, and tilt or list.
+
+- **Weather: storm from mid-mission 2 to mid-mission 3 (owner).** `stormTarget()` is 1 when `level === 2 && dist >=
+  levelLen / 2` or `level === 3 && dist < levelLen / 2`; `storm` (0..1) eases 0.004 per step toward it (~4 s), and
+  `startLevel` sets it at once (mission 3 and its retries start in the storm). "WEATHER ALERT: STORM FRONT" /
+  "STORM CLEARING" (info, never over a danger message). Mission 1 is unchanged. Visual only, no gameplay effect.
+  - `drawBackground`: dark sky overlay, sun and white clouds fade out, two layers of dark storm clouds, a gloomy veil
+    on the sea, sun rays hidden. `drawRain()` (after the particles, before the HUD): up to 150 slanted streaks down to
+    the surface plus splash rings, positions from `hash()` and `T` (no allocations). Cost: about +0.4 ms per frame.
+  - Lightning: above `storm > 0.8`, a 1/360 chance per step (~6 s): `lightning = 1` (decays 0.85 per step) lights the
+    sky, a `bolt()` strikes from the cloud base at `boltX`, thunder follows 0.2 to 1.2 s later. Tested: 10 strikes in
+    the stormy half of mission 2, 5 in mission 3.
+  - The NEWS for mission 2 has a "WEATHER: STORM FRONT from mid-mission" line. The title screen always shows clear weather.
 
 - **Bosses (`BOSSES[level]`, `spawnBoss()`, `updateBoss()`, `drawBoss()`):** when `dist` reaches `levelLen` in a mission
   that has an entry, `dist` is held there and the boss comes in; the mission ends 150 steps (`bossEnd`) after it is sunk.

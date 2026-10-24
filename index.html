@@ -199,6 +199,13 @@ const sfx = {
     nz(o, t + 0.35, 3, 0.35, 'lowpass', 400, 70, 1, 0.4);
     nz(o, t + 0.6, 2.5, 0.06, 'bandpass', 2500, 1000, 1.5, 0.3);
   },
+  thunder(x, d) { // storm: a sharp crack, then a long rolling rumble, d seconds after the flash
+    if (!ac) return; const t = ac.currentTime + d, o = sfxOut(x, 0.6, d + 5);
+    nz(o, t, 0.3, 0.2, 'highpass', 2500, 900, 0.7, 0.003);
+    nz(o, t + 0.05, 3.5, 0.45, 'lowpass', 900, 50, 0.7, 0.08);
+    nz(o, t + 0.8, 2.5, 0.3, 'lowpass', 300, 40, 1, 0.5);
+    os(o, t + 0.05, 2.5, 'sine', 45, 25, 0.25, 0.1);
+  },
   impact(x, y) { // torpedo hits a hull: blast plus inharmonic metal ring
     if (!ac) return; const t = ac.currentTime, o = sfxOut(x, 0.5, 1.5);
     nz(o, t, 0.45, 0.35, 'lowpass', 3000, 250, 0.7, 0.003);
@@ -294,6 +301,17 @@ function ciwsSound(on) {
     os(sfxOut(null, 0.2, 1), t, 0.6, 'triangle', 1400, 250, 0.03, 0.01); // barrels spin down
   }
 }
+// Rain: a steady hiss of rain on the sea, its volume follows the storm (0..1). Runs at 0 when the sky is clear
+let rainSnd = null;
+function rainSound(v) {
+  if (!ac || (!rainSnd && v <= 0)) return;
+  if (!rainSnd) {
+    const n = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+    n.buffer = noiseBuffer(); n.loop = true; f.type = 'bandpass'; f.frequency.value = 2800; f.Q.value = 0.35; g.gain.value = 0;
+    n.connect(f).connect(g).connect(master); n.start(); rainSnd = { n, f, g, v: 0 };
+  }
+  if (Math.abs(v - rainSnd.v) > 0.01 || (v === 0 && rainSnd.v)) { rainSnd.v = v; rainSnd.g.gain.setTargetAtTime(v * 0.07, ac.currentTime, 0.15); }
+}
 // Music: a cheerful sea melody + bass, 32 steps
 const MEL = [659, 0, 784, 0, 880, 0, 784, 659, 587, 0, 659, 0, 523, 0, 0, 0, 659, 0, 784, 0, 880, 0, 1047, 880, 784, 0, 659, 0, 587, 0, 0, 0];
 const BASS = [131, 110, 87, 98, 131, 110, 87, 98];
@@ -362,6 +380,9 @@ let bullets = [], laser = null, decoys = [], decoyCool = 0, bubbleAmmo = 5, bubb
 let dashMsg = '', dashA = 0, dashRed = false; // dashRed: danger message (red), else info (orange) // bottom dashboard: last message and its show/hide amount (0..1)
 const RETRIES = 3; // lost subs per game: each one restarts the failed mission, then it's back to mission 1
 let retries = RETRIES, lvlSave, shopFrom = 'title'; // lvlSave: score/kills/allies at mission start, restored on a retry
+// Weather: a storm (dark clouds, rain, lightning) from the middle of mission 2 to the middle of mission 3
+let storm = 0, stormOn = false, lightning = 0, boltX = 0; // storm: 0 clear .. 1 full storm, eased; lightning: flash 0..1
+const stormTarget = () => (level === 2 && dist >= levelLen / 2) || (level === 3 && dist < levelLen / 2) ? 1 : 0;
 let camX = 0, dist, levelLen, scroll, spawnTimer, coinTimer, kills, allies, flash, nextTimer, shake = 0;
 const WARN_RANGE = 400, WARN_RED = 150; // threat warning: starts beeping at 400 px, red under 150 px
 const SUB_CM_LEVEL = 3, SUB_CM_RANGE = 220, SUB_CM_SAVE = 0.5; // enemy sub decoys: from level 3, reaction range (px), chance to try
@@ -406,6 +427,7 @@ function startLevel() {
   belugaLeft = level < UNLOCK.swimmers ? 0 : MOBILE ? level - 1 : level * 2 - 3; belugaGap = (levelLen - 1000) / belugaLeft; nextBeluga = 300 + belugaGap * 0.4;
   enemies.push({ type: 'boat', x: W + 40, y: SURFACE - 24, w: 110, h: 40, hp: 3, pts: 40, fire: 120, rpA: -2.6 }); // a frigate opens every level
   lvlSave = { score, kills, allies };
+  storm = stormTarget(); stormOn = storm > 0; lightning = 0; // mission 3 starts in the storm
 }
 
 function boom(x, y, big = true) {
@@ -491,7 +513,8 @@ function locked(what) { // true (with a buzz and a message) while that weapon is
 // Mission briefing shown before each new mission (ENTER or 5 s): what is new
 const NEWS = {
   2: [['D', 'DECOYS ISSUED: lure torpedoes, mines and whales'], ['!', 'NEW THREAT: KAMIKAZE WHALES with bombs'],
-      ['!', 'NEW THREAT: COMBAT SWIMMERS from ships and helos'], ['!', 'NEW THREAT: ELECTRIC EELS jam your weapons']],
+      ['!', 'NEW THREAT: COMBAT SWIMMERS from ships and helos'], ['!', 'NEW THREAT: ELECTRIC EELS jam your weapons'],
+      ['!', 'WEATHER: STORM FRONT from mid-mission']],
   3: [['E', 'BUBBLE SCREEN ISSUED: blasts close threats away'], ...MOBILE ? [] : [['W', 'AIR DRONE ISSUED: kills drones, rams helos']],
       ['!', 'ENEMY SUBS now deploy decoys']],
   4: [['!', 'HEAVIER RESISTANCE: more and faster enemies'], ['!', 'BOSS: TYPHOON-CLASS SUB at the end of the mission']],
@@ -913,7 +936,7 @@ function updateWreck(p) {
 
 // ---------- Update ----------
 function update() {
-  if (state === 'pause') { laserSound(false); ciwsSound(false); return; } // frozen: nothing moves
+  if (state === 'pause') { laserSound(false); ciwsSound(false); rainSound(0); return; } // frozen: nothing moves
   T++;
   for (const f of bgFish) { if (state === 'play' || state === 'title') f.x -= f.s; if (f.x < -60) { f.x = W + 60; f.y = rnd(110, H - 150); } }
   if (particles.length > 500) particles.splice(0, particles.length - 500); // safety cap
@@ -930,13 +953,18 @@ function update() {
     if (p.kind === 'wreck') updateWreck(p);
   });
   particles = particles.filter(p => p.life > 0);
-  if (state === 'title') { camX += 0.4; return; }
+  rainSound(state === 'play' || state === 'brief' ? storm : 0);
+  if (lightning > 0.01) lightning *= 0.85; else lightning = 0;
+  if (state === 'title') { camX += 0.4; storm = 0; return; }
   if (state === 'next' && --nextTimer <= 0) { level++; startLevel(); state = 'brief'; briefT = BRIEF_TIME; tone(880, 0.15, 'sine', 0.06); setTimeout(() => tone(1320, 0.2, 'sine', 0.06), 160); }
   if (state === 'brief' && --briefT <= 0) state = 'play';
   if (MOBILE && state === 'play' && innerHeight > innerWidth) pauseGame(); // turned to portrait
   if (state !== 'play') { laserSound(false); ciwsSound(false); return; }
 
   camX += scroll; dist += scroll;
+  const sT = stormTarget(); storm += Math.max(-0.004, Math.min(0.004, sT - storm)); // the storm rolls in or clears in about 4 s
+  if (sT !== +stormOn) { stormOn = !!sT; if (!flash || !flash.danger) flash = { msg: stormOn ? 'WEATHER ALERT: STORM FRONT' : 'STORM CLEARING', t: 120 }; }
+  if (storm > 0.8 && Math.random() < 1 / 360) { lightning = 1; boltX = rnd(60, W - 60); sfx.thunder(boltX, rnd(0.2, 1.2)); } // a strike every ~6 s
   if (flash && --flash.t <= 0) flash = null;
   if (flash) { dashMsg = flash.msg; dashRed = !!flash.danger; }
   dashA += ((flash ? 1 : 0) - dashA) * 0.12; // dashboard message fades / slides in and out
@@ -1615,20 +1643,46 @@ function drawBackground() {
     GR.sand = ctx.createLinearGradient(0, H - 70, 0, H);
     GR.sand.addColorStop(0, '#e6c88a'); GR.sand.addColorStop(1, '#9c7640');
   }
-  ctx.fillStyle = '#fff59d'; ctx.beginPath(); ctx.arc(W - 90, 30, 18, 0, 7); ctx.fill();
-  ctx.fillStyle = 'rgba(255,255,255,0.9)';
-  for (let i = 0; i < 4; i++) {
-    const cx = ((i * 260 - camX * 0.1) % (W + 200) + W + 200) % (W + 200) - 100, cy = 18 + (i % 2) * 14;
-    ctx.beginPath(); ctx.arc(cx, cy, 12, 0, 7); ctx.arc(cx + 14, cy - 5, 14, 0, 7); ctx.arc(cx + 30, cy, 11, 0, 7); ctx.fill();
+  if (storm > 0) { // storm: dark sky, lightning lights it up from inside the clouds
+    ctx.fillStyle = 'rgba(38,44,54,' + storm * 0.88 + ')'; ctx.fillRect(-20, -20, W + 40, SURFACE + 24);
+    if (lightning > 0.05) { ctx.fillStyle = 'rgba(215,225,255,' + lightning * 0.55 + ')'; ctx.fillRect(-20, -20, W + 40, SURFACE + 24); }
+  }
+  if (storm < 1) {
+    ctx.globalAlpha = 1 - storm;
+    ctx.fillStyle = '#fff59d'; ctx.beginPath(); ctx.arc(W - 90, 30, 18, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    for (let i = 0; i < 4; i++) {
+      const cx = ((i * 260 - camX * 0.1) % (W + 200) + W + 200) % (W + 200) - 100, cy = 18 + (i % 2) * 14;
+      ctx.beginPath(); ctx.arc(cx, cy, 12, 0, 7); ctx.arc(cx + 14, cy - 5, 14, 0, 7); ctx.arc(cx + 30, cy, 11, 0, 7); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+  if (storm > 0) { // low, heavy storm clouds in two layers
+    ctx.globalAlpha = storm;
+    for (let l = 0; l < 2; l++) {
+      ctx.fillStyle = l ? '#2a2f37' : '#454c57'; ctx.beginPath();
+      for (let i = 0; i < 7; i++) {
+        const cx = ((i * 150 + l * 70 - camX * (0.08 + l * 0.06)) % (W + 240) + W + 240) % (W + 240) - 120, cy = 6 + l * 14 + (i % 2) * 6;
+        ctx.moveTo(cx + 22, cy); ctx.arc(cx, cy, 22, 0, 7); ctx.moveTo(cx + 50, cy - 6); ctx.arc(cx + 26, cy - 6, 24, 0, 7); ctx.moveTo(cx + 70, cy); ctx.arc(cx + 50, cy, 20, 0, 7);
+      }
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    if (lightning > 0.4) { ctx.strokeStyle = '#eef3ff'; ctx.lineWidth = 1.6; bolt(boltX, 24, boltX + rnd(-25, 25), SURFACE - 2); } // strike from the cloud base
   }
 
   // Waves: only the thin band between the wave line and the cached water top
   ctx.fillStyle = '#3fb6e0'; ctx.beginPath(); ctx.moveTo(0, SURFACE + 4);
   for (let sx = 0; sx <= W; sx += 8) ctx.lineTo(sx, waveY(sx));
   ctx.lineTo(W, SURFACE + 4); ctx.fill();
+  if (storm > 0) { // gray, gloomy sea under the storm
+    ctx.fillStyle = 'rgba(4,14,26,' + storm * 0.4 + ')'; ctx.beginPath(); ctx.moveTo(0, H + 20);
+    for (let sx = 0; sx <= W; sx += 8) ctx.lineTo(sx, waveY(sx));
+    ctx.lineTo(W, H + 20); ctx.fill();
+  }
 
-  // Sun rays
-  ctx.fillStyle = 'rgba(255,255,255,0.05)';
+  // Sun rays (hidden by the storm)
+  ctx.fillStyle = 'rgba(255,255,255,' + 0.05 * (1 - storm) + ')';
   for (let i = 0; i < 7; i++) {
     const x0 = i * 130 + Math.sin(T * 0.004 + i) * 30;
     ctx.beginPath(); ctx.moveTo(x0, SURFACE); ctx.lineTo(x0 + 40, SURFACE); ctx.lineTo(x0 + 140, H); ctx.lineTo(x0 + 60, H); ctx.fill();
@@ -2175,6 +2229,23 @@ function drawHeart(x, y) {
   ctx.arc(x - 3, y, 3.5, Math.PI, 0); ctx.arc(x + 3, y, 3.5, Math.PI, 0); ctx.lineTo(x, y + 8); ctx.closePath(); ctx.fill();
 }
 
+function drawRain() { // slanted streaks falling to the sea, small splash rings on the surface
+  const n = storm * 150 | 0, top = SURFACE + 2;
+  ctx.strokeStyle = 'rgba(190,205,225,0.45)'; ctx.lineWidth = 0.8; ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const f = hash(i * 1.7) * top + T * (7 + hash(i * 2.9) * 3), y = f % top - 10;
+    const x = ((hash(i * 5.3) * (W + 60) - f * 0.25 - camX * 0.3) % (W + 60) + W + 60) % (W + 60) - 30;
+    ctx.moveTo(x, y); ctx.lineTo(x - 2, y + 8);
+  }
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(200,215,235,0.5)'; ctx.beginPath();
+  for (let i = 0; i < n / 8; i++) {
+    const p = T + hash(i * 3.1) * 30, k = (p % 30) / 30, x = hash(i * 9.1 + Math.floor(p / 30) * 0.37) * W;
+    ctx.moveTo(x + 1 + k * 4, waveY(x)); ctx.ellipse(x, waveY(x), 1 + k * 4, 0.5 + k, 0, 0, 7);
+  }
+  ctx.stroke();
+}
+
 function drawParticles() {
   for (const p of particles) {
     const a = p.life / p.max;
@@ -2485,6 +2556,7 @@ function draw() {
   }
   for (let i = 0; i < allies; i++) { const a = allyBox(i); drawShip(a.x, a.y, ship().color, false, 1.6, false, '#3a4048'); }
   drawParticles();
+  if (storm > 0) drawRain();
 
   // HUD
   text('SCORE ' + score, 22, 16, '#fff', 10, 'left');
