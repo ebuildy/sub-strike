@@ -144,11 +144,15 @@ kamikaze belugas.
     the mission: +1 life each ("MEDEVAC CRATE: +1 LIFE"). Tested: mission 5 with 2 lives starts with 3, with 3 stays 3;
     both crates dropped and were collected; none in mission 4. A `+` line in `NEWS` is drawn green like a weapon.
   - **Bosses at the end of missions 4 and 5:** see Bosses below.
+  - **Mission 1 is training (owner):** passing it once sets `trained` (`localStorage` key `si_trained`, saved by `save()`).
+    From then on every new game (`reset()`) starts at mission 2, and `redeploy()` opens it on the mission 2 briefing
+    (`state = 'brief'`). Retries still restart the failed mission. Tested: fresh browser -> mission 1; game over before
+    passing it -> mission 1; after it -> mission 2 with briefing, also after a page reload.
   - **Mission retries (`RETRIES = 3`, owner):** when the sub's hearts run out, one of 3 game lives is spent
     (`retries--` in `damagePlayer`). With lives left, the lost screen shows "SUB LOST - MISSION n FAILED", "n LIVES
     REMAINING" with hearts, and ENTER/tap (`redeploy()` -> `retryLevel()`) restarts **that mission** with a fresh sub,
     full hearts and the score/kills/allies it started with (`lvlSave`, taken at the end of `startLevel`). With none left:
-    "GAME OVER - NO LIVES REMAINING", ENTER starts a new game at mission 1. These lives are **only shown on the lost
+    "GAME OVER - NO LIVES REMAINING", ENTER starts a new game (mission 1, or mission 2 once trained, see below). These lives are **only shown on the lost
     screen**, never on the HUD. The armory opened from the lost screen returns to it (`shopFrom`).
 
 - **Controls** (the owner uses an AZERTY keyboard; keep the action keys together under the left hand)
@@ -161,6 +165,10 @@ kamikaze belugas.
   - **ESC pauses** (`state = 'pause'`): `update()` returns at once (everything frozen, laser and CIWS sounds off,
     held keys cleared), and `draw()` paints the frozen game, a dark veil, then the welcome help page `drawHelp(true)`
     ("GAME PAUSED", "ESC or ENTER to resume"). The title screen uses the same `drawHelp(false)`.
+  - **CLEAR DATA (pause screen, owner):** a red button bottom right (`CLEAR_BTN`), mouse click or tap. The first press
+    arms it ("CONFIRM?" for 3 s, `clearArm`), the second calls `clearData()`: removes every `si_*` key (not
+    `localStorage.clear()`: the ebuildy.github.io origin is shared with other pages), resets coins, ships and `trained`,
+    and goes back to the title screen.
   - **Welcome screen (`drawHelp`) is full-canvas** "THREAT RECOGNITION // CLASSIFIED": a dark veil with a faint
     sonar grid, the title, then **3D** models of our sub, the enemy sub and the frigate (`SHOWCASE`), then 8 **2D**
     threat cards (`ROSTER`: mine, octopus, eel, whale, swimmer, helo, drone, anti-ship missile, each drawn with the
