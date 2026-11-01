@@ -3,7 +3,7 @@
 An underwater side-scroller for military IT developers, as easy to pick up as Mario. Drive a French attack sub and fight mines, octopuses, electric eels,
 enemy subs, frigates, helicopters, drones and kamikaze belugas.
 
-It is a single file, `index.html`, with no install, no build and no assets: every graphic is drawn on a
+It is a single file, `www/index.html`, with no install, no build and no assets: every graphic is drawn on a
 canvas and every sound is synthesized live.
 
 ![welcome screen](./docs/welcome.png)
@@ -16,7 +16,9 @@ canvas and every sound is synthesized live.
 
 **Play online: https://ebuildy.github.io/sub-strike/** (no install).
 
-Or open `index.html` in a browser (on macOS: `open index.html`). It works offline, with no server.
+Or open `www/index.html` in a browser (on macOS: `open www/index.html`). It works offline, with no server.
+
+Android app (Google Play): see [docs/android.md](./docs/android.md).
 
 | Key | Action |
 |---|---|
@@ -56,14 +58,14 @@ This game is built by asking [Claude Code](https://claude.com/claude-code) for c
    - "Add a shark enemy from level 3"
    - "Make the torpedoes faster"
    - "The helicopter sound is too quiet"
-3. Claude edits `index.html`, tests the change in a browser and reopens the game for you.
+3. Claude edits `www/index.html`, tests the change in a browser and reopens the game for you.
 4. Play it and say what to change. Tuning by feel is the normal way to work here.
 
 `AGENTS.md` holds the project rules Claude follows: the code layout, the conventions and the gameplay
 rules already agreed. Keep it up to date when the game changes; Claude does this for you.
 
 Ground rules:
-- Keep everything in `index.html`: no libraries, images or extra files.
+- Keep everything in `www/index.html`: no libraries, images or extra files.
 - In-game text is in English, with military vocabulary. Code and comments are in English too.
 - The game is published on GitHub Pages from `main`: every push goes live about a minute later, so push only
   a tested, working game.

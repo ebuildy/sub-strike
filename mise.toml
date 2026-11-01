@@ -1,0 +1,58 @@
+# Tools to build the Android app (Capacitor). The game itself needs none of them.
+# Setup: `mise install && mise run android:sdk && npm install`
+
+[tools]
+node = "24"              # npm, for Capacitor
+java = "temurin-21"      # JDK required by the Android Gradle plugin
+android-sdk = "23.0"     # Android command-line tools (sdkmanager)
+
+[env]
+ANDROID_HOME = "{{env.HOME}}/Library/Android/sdk"
+ANDROID_SDK_ROOT = "{{env.HOME}}/Library/Android/sdk"
+
+[tasks."android:sdk"]
+description = "Install the Android SDK packages (Play requires target API 36)"
+run = 'sdkmanager --sdk_root="$ANDROID_HOME" "platform-tools" "platforms;android-36" "build-tools;36.0.0"'
+
+[tasks."site:copy"]
+description = "Copy www/index.html and www/privacy.html to the root, which GitHub Pages serves (transition)"
+run = "cp www/index.html www/privacy.html ."
+
+[tasks."android:sync"]
+description = "Copy www/ into the Android project"
+depends = ["site:copy"]
+run = "npx cap sync android"
+
+[tasks."android:run"]
+description = "Install and start the game on a USB phone or an emulator"
+depends = ["android:sync"]
+run = "npx cap run android"
+
+[tasks."android:apk"]
+description = "Debug APK to sideload: android/app/build/outputs/apk/debug/app-debug.apk"
+depends = ["android:sync"]
+dir = "android"
+run = "./gradlew assembleDebug"
+
+[tasks."android:bundle"]
+description = "Signed release bundle for Play: android/app/build/outputs/bundle/release/app-release.aab"
+depends = ["android:sync"]
+dir = "android"
+run = """
+[ -f keystore.properties ] || { echo "No upload key: run mise run android:keystore first"; exit 1; }
+./gradlew bundleRelease
+"""
+
+[tasks."android:keystore"]
+description = "Create the Play upload key in ~/.android-keys (once; back it up)"
+run = """
+KS="$HOME/.android-keys/substrike-upload.jks"
+[ -f "$KS" ] && { echo "$KS already exists"; exit 1; }
+mkdir -p "$(dirname "$KS")"
+read -rs -p "Upload key password (6+ chars): " PW; echo
+keytool -genkeypair -v -keystore "$KS" -alias upload -keyalg RSA -keysize 2048 -validity 10000 \
+  -storepass "$PW" -keypass "$PW" -dname "CN=ebuildy, O=ebuildy, C=FR"
+printf 'storeFile=%s\\nstorePassword=%s\\nkeyAlias=upload\\nkeyPassword=%s\\n' "$KS" "$PW" "$PW" > android/keystore.properties
+chmod 600 android/keystore.properties
+echo "Key: $KS (back it up). Settings: android/keystore.properties (not in git)"
+"""

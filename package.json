@@ -1,0 +1,26 @@
+{
+  "name": "sub-strike",
+  "version": "1.0.0",
+  "description": "An underwater side-scroller for military IT developers, as easy to pick up as Mario. Drive a French attack sub and fight mines, octopuses, electric eels, enemy subs, frigates, helicopters, drones and kamikaze belugas.",
+  "scripts": {
+    "sync": "cap sync android",
+    "android": "cap run android"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ebuildy/sub-strike.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ebuildy/sub-strike/issues"
+  },
+  "homepage": "https://github.com/ebuildy/sub-strike#readme",
+  "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/cli": "^8.5.3",
+    "@capacitor/core": "^8.5.3"
+  },
+  "private": true
+}

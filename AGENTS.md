@@ -6,19 +6,28 @@ kamikaze belugas.
 
 ## Project shape
 
-- **One file: `index.html`.** HTML, CSS and all the JavaScript (about 2550 lines) live in it.
+- **One file: `www/index.html`.** HTML, CSS and all the JavaScript (about 2550 lines) live in it.
   There is no build, no dependencies and no assets: every graphic is drawn on a Canvas 2D and every
   sound is synthesized with Web Audio. Keep it that way: no libraries, images or extra files unless
   the owner asks.
 - **Git repo** `ebuildy/sub-strike` (public, branch `main`). Commit or push only when the owner asks. Before a
   risky edit, back up the file to your scratch directory.
-- **To run it:** `open index.html` on macOS. It works from `file://` and needs no server. Reopen it
+- **To run it:** `open www/index.html` on macOS. It works from `file://` and needs no server. Reopen it
   for the owner after each change.
-- **Published on GitHub Pages:** https://ebuildy.github.io/sub-strike/ serves `index.html` from the root of
-  `main`. Every push to `main` goes live about a minute later, so push only a tested, working game.
+- **Published on GitHub Pages:** https://ebuildy.github.io/sub-strike/ serves the root `index.html` of
+  `main`. **Transition:** the game is edited in `www/index.html`; the root `index.html` is a copy for Pages, refreshed
+  with `mise run site:copy` (also run by `android:sync`). Run it before every commit so both are the same. Later,
+  `.github/workflows/pages.yml` will publish `www/` and `docs/` instead (see its header) and the root copy goes. Every push to `main` goes live about a minute later, so push only a tested, working game.
   - The site is static and read-only: no backend, so scores, coins and ships stay in each player's `localStorage`.
     A shared leaderboard would need an outside service.
   - Keep every path relative and the game working from `file://` and from the `/sub-strike/` subpath.
+- **Android app (Google Play):** a Capacitor 8 wrapper (`capacitor.config.json`, `android/`, app id
+  `com.ebuildy.substrike`) bundles `www/` into the app, offline. Tools come from `mise.toml` (Node 24, JDK 21,
+  Android SDK API 36); its tasks: `android:sdk`, `android:sync`, `android:run`, `android:apk`, `android:keystore`,
+  `android:bundle` (signed `.aab`). `MainActivity` locks landscape (manifest), hides the system bars and maps the
+  Back button to `androidBack()` in the game (pause / resume / leave the armory, else the app goes to the
+  background). Bump `versionCode` in `android/app/build.gradle` for every Play upload. The upload key and
+  `android/keystore.properties` are never committed.
 
 ## Language
 
@@ -412,7 +421,7 @@ kamikaze belugas.
 
 1. **Syntax check:**
    ```sh
-   sed -n '/<script>/,/<\/script>/p' index.html | sed '1d;$d' > /tmp/g.js && node --check /tmp/g.js
+   sed -n '/<script>/,/<\/script>/p' www/index.html | sed '1d;$d' > /tmp/g.js && node --check /tmp/g.js
    ```
 2. **Behavior:** open the page in Chrome (DevTools or another browser tool) and drive the
    simulation by hand with an injected script. The top-level `let`/`function` names are reachable
@@ -428,7 +437,7 @@ kamikaze belugas.
    - **Keep the player alive:** set `player.inv` and `lives`.
    - **Report numbers:** distances, lives lost, steps until an event, spawn counts per level. Not
      just "it works".
-3. **Reopen the game** for the owner with `open index.html`.
+3. **Reopen the game** for the owner with `open www/index.html`.
 
 ## Balance notes
 

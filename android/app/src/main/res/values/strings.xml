@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Battle Beneath the Sea</string>
+    <string name="title_activity_main">Battle Beneath the Sea</string>
+    <string name="package_name">com.ebuildy.substrike</string>
+    <string name="custom_url_scheme">com.ebuildy.substrike</string>
+</resources>

@@ -2726,6 +2726,10 @@ function redeploy() {
 }
 function pauseGame() { state = 'pause'; for (const k in keys) keys[k] = false; stick.id = null; stick.x = stick.y = 0; tone(600, 0.08, 'sine', 0.05); }
 function resumeGame() { state = 'play'; tone(900, 0.08, 'sine', 0.05); }
+function androidBack() { // Android app Back button (MainActivity): false lets the app go to the background
+  if (state === 'play') pauseGame(); else if (state === 'pause') resumeGame(); else if (state === 'shop') state = shopFrom; else return false;
+  return true;
+}
 
 // ---------- Touch controls (mobile) ----------
 // Left thumb: floating stick anywhere on the left side. Right thumb: weapon buttons. Menus: tap.
