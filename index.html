@@ -44,7 +44,7 @@ const W = cv.width / SCALE, H = cv.height / SCALE;
 const SURFACE = 70; // y of the sea surface
 const keys = {};
 // Phone or tablet (touch is the main pointer; ?mobile=1 forces it for testing): touch controls, fewer
-// enemies, no laser and no air drone
+// enemies, no air drone
 const MOBILE = /[?&]mobile=1/.test(location.search) || matchMedia('(pointer: coarse)').matches;
 const MOB_SPAWN = MOBILE ? 1.6 : 1; // spawn gaps are 1.6x longer on mobile
 if (MOBILE) document.body.classList.add('mobile');
@@ -405,7 +405,7 @@ const WARN_RANGE = 400, WARN_RED = 150; // threat warning: starts beeping at 400
 const SUB_CM_LEVEL = 3, SUB_CM_RANGE = 220, SUB_CM_SAVE = 0.5; // enemy sub decoys: from level 3, reaction range (px), chance to try
 const RAMPART_AA = 480, RAMPART_ASW = 260, RAMPART_SAVE = 0.5; // ASW: anti-torpedo range (px) and chance to try an interception // px: the Rampart fires an air/air missile at an H-bomb in the sky within this range
 const SURF_Y = SURFACE - 25, CIWS_RANGE = 340, CIWS_HITS = 10, ASM_HITS = 3; // rounds to down an anti-ship missile // surfaced: sail and hull top out of the water; rounds per hp
-const LASER_RANGE = 150, LASER_BURN = 180, MINE_BURN = 45; // short range; 3 s of beam per damage point, mines pop in 0.75 s
+const LASER_RANGE = 150, LASER_BURN = 180, MINE_BURN = 45; // short range; 3 s of beam per damage point, mines and drones pop in 0.75 s
 const hasDouble = () => player.double > 0 || ship().double;
 const rnd = (a, b) => a + Math.random() * (b - a);
 const hash = n => { const v = Math.sin(n * 127.1 + 311.7) * 43758.5453; return v - Math.floor(v); };
@@ -1091,13 +1091,19 @@ function update() {
       particles.push({ kind: 'bubble', x: tx0 + rnd(0, 8), y: ty0 + rnd(-6, 4), vx: rnd(-0.3, 0.3), vy: rnd(-0.8, -0.2), life: 50, max: 50, size: rnd(1, 3) });
     player.cool = ship().cool * (hasDouble() ? 2 : 4); sfx.shoot(player.x + 90); // bonus = faster reload
   }
-  // Laser (hold L): fires along the sub's tilt, stops at the first thing it touches
+  // Laser (hold F): fires along the sub's tilt, stops at the first thing it touches.
+  // Near the surface its fire control locks the closest air drone in reach: the beam leaves the water to burn it
   laser = null;
-  if (keys.KeyF && !player.jam && !MOBILE) { // no laser on mobile
+  if (keys.KeyF && !player.jam) {
     const a = player.vy * 0.1, c = Math.cos(a), sn = Math.sin(a), cx = player.x + 46, cy = player.y + 24;
     const x1 = cx + 48 * c + 2 * sn, y1 = cy + 48 * sn - 2 * c; // nose of the sub, rotated with it
-    let d = 0, target = null, x2 = x1, y2 = y1;
-    for (; d <= LASER_RANGE; d += 3) {
+    let d = 0, target = null, x2 = x1, y2 = y1, best = LASER_RANGE;
+    for (const e of enemies) if (e.type === 'drone' && !e.dead && e.x + 16 > cx) { // ahead of the sub
+      const dd = Math.hypot(e.x + 16 - x1, e.y + 7 - y1);
+      if (dd < best) { best = dd; target = e; }
+    }
+    if (target) { x2 = target.x + 16; y2 = target.y + 7; }
+    else for (; d <= LASER_RANGE; d += 3) {
       x2 = x1 + c * d; y2 = y1 + sn * d;
       if (y2 < SURFACE || y2 > groundY(camX + x2)) break;
       target = enemies.find(e => !e.dead && x2 > e.x - 4 && x2 < e.x + e.w + 4 && y2 > e.y - 4 && y2 < e.y + e.h + 4); // beam is a few px wide
@@ -1108,7 +1114,7 @@ function update() {
     laser = { x1, y1, x2, y2, hit: d <= LASER_RANGE };
     if (target && target.type !== 'rock') {
       target.burn = (target.burn || 0) + 1; target.zap = T;
-      if (target.burn >= (target.type === 'mine' ? MINE_BURN : LASER_BURN)) {
+      if (target.burn >= (target.type === 'mine' || target.type === 'drone' ? MINE_BURN : LASER_BURN)) { // drones and mines go fast
         target.burn = 0; target.hp--; target.flash = 6;
         addMark(target, x2); impact(x2, y2, target);
         if (target.hp <= 0) killEnemy(target);
@@ -2521,19 +2527,19 @@ function draw3D(mesh, cx, cy, s, yaw, pitch) {
 
 // Threat recognition cards on the welcome screen (2D art from the game); objects made once
 const ROSTER = [
-  { name: 'NAVAL MINE', note: MOBILE ? 'Proximity fuse. Torpedo it' : 'Proximity fuse. Laser it', e: { x: 0, y: 0 }, f: drawMine, bx: -2, by: -2, w: 24, h: 24 },
+  { name: 'NAVAL MINE', note: 'Proximity fuse. Laser it', e: { x: 0, y: 0 }, f: drawMine, bx: -2, by: -2, w: 24, h: 24 },
   { name: 'OCTOPUS', note: '2 torpedoes. Ink cloud', e: { x: 0, y: 0, t: 0 }, f: drawOcto, bx: 0, by: 0, w: 22, h: 16 },
   { name: 'ELECTRIC EEL', m: 2, note: 'EMP jams weapons 10 s', e: { x: 0, y: 0, t: 0 }, f: drawEel, bx: 0, by: -4, w: 80, h: 22 },
   { name: 'KAMIKAZE WHALE', m: 2, note: 'Bomb on back, dodges', e: { x: 0, y: 0, t: 0, vy: 0, face: -1, bomb: true }, f: drawBeluga, bx: -4, by: -8, w: 58, h: 36 },
   { name: 'COMBAT SWIMMER', m: 2, note: 'Drops from ships, helos', e: { x: 0, y: 0, t: 0, vy: 0, face: -1, bomb: true }, f: drawDiver, bx: -4, by: -6, w: 52, h: 30 },
   { name: 'NAVAL HELO', note: 'Depth charges. Use CIWS', e: { x: 0, y: 0 }, f: drawHeli, bx: -10, by: -2, w: 74, h: 30 },
-  { name: 'ATTACK DRONE', note: 'Laser near surface: dive', e: { x: 0, y: 0, t: 0 }, f: drawDrone, bx: 0, by: 0, w: 32, h: 16 },
+  { name: 'ATTACK DRONE', note: 'Laser it, or dive', e: { x: 0, y: 0, t: 0 }, f: drawDrone, bx: 0, by: 0, w: 32, h: 16 },
   { name: 'ANTI-SHIP MISSILE', note: 'Hits surfaced subs: CIWS', e: { x: 0, y: 0, w: 14, h: 4, a: Math.PI }, f: drawASM, bx: -2, by: -4, w: 18, h: 12 },
   { name: 'PIRATE SHIP', m: PIRATE_LEVEL, note: 'Cannon balls sink: dodge', e: { x: 0, y: 0 }, f: drawPirateShip, bx: -14, by: -42, w: 126, h: 78 },
   { name: 'PIRATE', m: PIRATE_LEVEL, note: 'Rum barrel bomb on back', e: { x: 0, y: 0, t: 0, vy: 0, face: -1, bomb: true }, f: drawPirate, bx: -12, by: -8, w: 56, h: 30 },
 ];
 const SHOWCASE = [
-  { name: 'YOUR BOAT: SUFFREN-CLASS SSN', note: MOBILE ? 'Torpedoes, H-bomb, CIWS' : 'Torpedoes, laser, H-bomb, CIWS', mesh: 'mine', s: 1.9 },
+  { name: 'YOUR BOAT: SUFFREN-CLASS SSN', note: 'Torpedoes, laser, H-bomb, CIWS', mesh: 'mine', s: 1.9 },
   { name: 'ENEMY ATTACK SUB', note: 'Homing torpedoes. Decoys from mission 3', mesh: 'enemy', s: 1.9 },
   { name: 'ENEMY FRIGATE + RAMPART', note: 'Depth charges, drones, SAMs, missiles', mesh: 'frigate', s: 1.75 },
 ];
@@ -2570,7 +2576,7 @@ function drawHelp(paused) { // full-screen welcome page (threat recognition); al
     ctx.restore();
   });
   if (MOBILE) {
-    text('LEFT THUMB steer   FIRE torpedo   H-BOMB guided bomb   DECOY   BUBBLE', 358, 14);
+    text('LEFT THUMB steer   FIRE torpedo   LASER (hold)   H-BOMB guided bomb   DECOY   BUBBLE', 358, 14);
     text('Surfaced: FIRE = CIWS anti-air gun   //   DECOY issued from mission 2, BUBBLE from mission 3', 376, 11, '#bff');
   } else {
     text('← ↑ → ↓ steer  SPACE torpedo  F laser  D decoys  E bubbles  S H-bomb  W drone', 358, 14);
@@ -2865,6 +2871,7 @@ const stick = { x: 0, y: 0, id: null, ox: 0, oy: 0 }, STICK_R = 44; // x, y: -1.
 const BTN = [ // logical px; on: shown from that mission
   { id: 'fire', x: W - 72, y: H - 78, r: 42, c: '#ff6a3a' },
   { id: 'bomb', x: W - 168, y: H - 46, r: 28, c: '#ffa31a' },
+  { id: 'laser', x: W - 240, y: H - 104, r: 28, c: '#ff3030' }, // hold = keys.KeyF
   { id: 'decoy', x: W - 158, y: H - 128, r: 26, c: '#7ff', on: 'decoys' },
   { id: 'bubble', x: W - 72, y: H - 172, r: 26, c: '#dff6ff', on: 'bubbles' },
   { id: 'pause', x: 26, y: 74, r: 14, c: '#cde' },
@@ -2888,8 +2895,9 @@ function goFullscreen() { // Android: full screen + landscape lock. iPhone Safar
 function pressBtn(b, id) {
   held[id] = b.id; b.t = 8; // b.t: pressed glow
   if (b.id === 'pause') { pauseGame(); return; }
-  if (player.jam && (b.id === 'fire' || b.id === 'bomb')) sfx.denied();
+  if (player.jam && (b.id === 'fire' || b.id === 'bomb' || b.id === 'laser')) sfx.denied();
   if (b.id === 'fire') keys.Space = true;
+  if (b.id === 'laser') keys.KeyF = true;
   if (b.id === 'bomb') fireHBomb();
   if (b.id === 'decoy') throwDecoys();
   if (b.id === 'bubble') bubbleBurst();
@@ -2950,9 +2958,11 @@ if (MOBILE) {
       const id = t.identifier, began = touchState[id];
       delete touchState[id];
       if (id === stick.id) { stick.id = null; stick.x = stick.y = 0; }
-      if (held[id] === 'fire') { delete held[id]; if (!Object.values(held).includes('fire')) keys.Space = false; }
-      else if (held[id]) delete held[id];
-      else if (e.type === 'touchend' && began === state && state !== 'play') tap(...touchXY(t)); // a tap that began in this menu
+      const hb = held[id];
+      if (hb) delete held[id];
+      if (hb === 'fire' && !Object.values(held).includes('fire')) keys.Space = false;
+      else if (hb === 'laser' && !Object.values(held).includes('laser')) keys.KeyF = false;
+      else if (!hb && e.type === 'touchend' && began === state && state !== 'play') tap(...touchXY(t)); // a tap that began in this menu
     }
   };
   addEventListener('touchend', release, { passive: false });
@@ -2977,14 +2987,18 @@ function drawTouch() { // stick and weapon buttons over the game
   for (const b of BTN) {
     if (!btnOn(b)) continue;
     if (b.t > 0) b.t--;
-    const down = b.t > 0 || (b.id === 'fire' && keys.Space);
-    const off = b.id === 'fire' ? player.jam || (player.up && player.ciws < 1) : b.id === 'bomb' ? player.jam || hbombs <= 0 || missiles.length
+    const down = b.t > 0 || (b.id === 'fire' && keys.Space) || (b.id === 'laser' && keys.KeyF);
+    const off = b.id === 'fire' ? player.jam || (player.up && player.ciws < 1) : b.id === 'laser' ? player.jam : b.id === 'bomb' ? player.jam || hbombs <= 0 || missiles.length
       : b.id === 'decoy' ? decoyCool > 0 : b.id === 'bubble' ? bubbleAmmo <= 0 || bubbleCool > 0 : false;
     ctx.globalAlpha = off ? 0.35 : 0.85;
     ctx.fillStyle = down ? 'rgba(255,255,255,0.3)' : 'rgba(10,20,30,0.5)'; ctx.strokeStyle = b.c; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, 7); ctx.fill(); ctx.stroke();
     if (b.id === 'fire') text(player.up ? 'CIWS' : 'FIRE', b.y + 6, 16, b.c, b.x);
-    else if (b.id === 'bomb') { drawHBomb({ x: b.x - 2.5, y: b.y - 19 }); text('H-BOMB', b.y + 8, 9, b.c, b.x); text(hbombs, b.y + 19, 9, '#fff', b.x); }
+    else if (b.id === 'laser') {
+      ctx.strokeStyle = b.c; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(b.x - 12, b.y - 4); ctx.lineTo(b.x + 12, b.y - 10); ctx.stroke(); // beam
+      ctx.fillStyle = '#ffe0e0'; ctx.beginPath(); ctx.arc(b.x + 12, b.y - 10, 2.5, 0, 7); ctx.fill();
+      text('LASER', b.y + 12, 9, b.c, b.x);
+    } else if (b.id === 'bomb') { drawHBomb({ x: b.x - 2.5, y: b.y - 19 }); text('H-BOMB', b.y + 8, 9, b.c, b.x); text(hbombs, b.y + 19, 9, '#fff', b.x); }
     else if (b.id === 'decoy') {
       drawDecoy({ x: b.x - 5, y: b.y - 12, vy: 0 }); drawDecoy({ x: b.x + 5, y: b.y - 10, vy: 1 }); text('DECOY', b.y + 10, 9, b.c, b.x);
       if (decoyCool) { ctx.strokeStyle = '#ffb300'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r - 3, -Math.PI / 2, -Math.PI / 2 + 6.283 * (1 - decoyCool / DECOY_COOL)); ctx.stroke(); } // reload

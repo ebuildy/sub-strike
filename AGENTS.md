@@ -184,12 +184,12 @@ kamikaze belugas.
   adds `body.mobile`. Landscape and full screen only: the canvas fills the screen (16:9, letterboxed), the first tap
   in a menu calls `goFullscreen()` (Android: fullscreen + landscape lock; iPhone Safari has no fullscreen API), and
   portrait shows the `#rotate` overlay and pauses the game. Hiding the page also pauses it.
-  - **Easier:** spawn gaps (sea and air) x`MOB_SPAWN = 1.6`, belugas `level - 1` instead of `2 × level − 3`. No laser
-    and no air drone (`UNLOCK.drone = Infinity`, the NEWS line and laser mentions are left out). Enemy drones stay.
+  - **Easier:** spawn gaps (sea and air) x`MOB_SPAWN = 1.6`, belugas `level - 1` instead of `2 × level − 3`. No air
+    drone (`UNLOCK.drone = Infinity`, its NEWS line is left out). The laser is there (owner), on a LASER button. Enemy drones stay.
     Tested on mission 2: 10 sea / 3 air spawns vs 15 / 5 on desktop.
   - **Touch controls** (bottom of the script): a floating stick anywhere on the left 55% (`stick`, analog -1..1,
     mixed into `tx/ty`), and round buttons on the right (`BTN`): FIRE (hold = `keys.Space`, so CIWS when surfaced),
-    H-BOMB, DECOY (mission 2+), BUBBLE (mission 3+), plus a pause button top left. `drawTouch()` draws them; the
+    LASER (hold = `keys.KeyF`), H-BOMB, DECOY (mission 2+), BUBBLE (mission 3+), plus a pause button top left. `drawTouch()` draws them; the
     keyboard HUD weapon rows are hidden on mobile because the buttons show the ammo.
   - **Menus:** taps act on touchend, only for a touch that began in that same state (holding FIRE when the sub dies
     must not redeploy). `touchBtn()` draws the ARMORY / BACK buttons; in the shop, tap a row to select, again to buy.
@@ -253,6 +253,10 @@ kamikaze belugas.
 - **Laser:** red beam with an electric sound and short range (`LASER_RANGE = 150`), following the
   sub's tilt. It instantly destroys depth charges. It burns mines in 0.75 s (`MINE_BURN`) and
   everything else in 3 s per hp (`LASER_BURN`). Rocks block it.
+  - **Air drones (owner):** the beam stops at the surface, except that its fire control locks the closest enemy drone
+    ahead of the sub whose center is within `LASER_RANGE` of the nose: the beam then goes straight out of the water to
+    it and burns it in 0.75 s (`MINE_BURN`). Helicopters stay out of reach. Tested: surfaced or 20 px deep, a drone
+    110 px ahead and 40 px up dies in 45 steps; 150 px deep it is out of reach.
 - **Mines and depth charges** have a proximity fuse:
   - They arm within 38 px of the sub, then beep and blink for 0.4 s.
   - Then they explode with a 55 px blast, which damages the player and kills allies.
