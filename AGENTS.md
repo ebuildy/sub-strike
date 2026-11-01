@@ -174,7 +174,7 @@ kamikaze belugas.
     threat cards (`ROSTER`: mine, octopus, eel, whale, swimmer, helo, drone, anti-ship missile, each drawn with the
     game's own `drawX`, scaled into a clipped card, with a one-line tip and "FROM MISSION n" in red when locked
     early), then the controls and ENTER / ARMORY / coins. **Add any new enemy to `ROSTER` (2D) or `SHOWCASE` (3D).**
-    The grid is full (4x2); the bosses are not on it, they are announced by the mission 4 and 5 briefings.
+    The grid is 3 rows of 4 (10 cards); the bosses are not on it, they are announced by the mission 4 and 5 briefings.
   - **Tiny 3D engine** (no library): meshes are face lists `{ p: [[x,y,z]...], c: [r,g,b] }` (x = length, y = up),
     built once into `MESH` by `subMesh(hull, fins)` (hull of revolution, sail, planes, X rudders) and `frigateMesh()`
     (lofted hull, superstructure, pyramid mast, hangar, radome, Rampart) with `box3`. `draw3D(mesh, cx, cy, scale,
@@ -344,6 +344,18 @@ kamikaze belugas.
   - **Helicopter:** each frigate spawns a heli parked on its flight deck (`parked`, if no other heli is
     around). It lifts off 1 to 3 s after the frigate is on screen (`lift`), then flies as a normal heli.
     It takes off at once if the frigate is sunk.
+- **Pirate ship (owner), from mission 2 (`PIRATE_LEVEL`):** `spawnBoat(x)` makes every surface ship (the opener in
+  `startLevel` too) a pirate ship with `PIRATE_CHANCE = 0.2` (tested: 20.3% at mission 2, 0% at mission 1). It is a
+  `boat` with `pirate: true`, so the lock, H-bomb, torpedo box, wreck and storm heave work as for the frigate, but it
+  has no Rampart, no heli and no depth charges. `drawPirateShip`: wooden galleon, gun ports, square sails, Jolly Roger.
+  - **Cannon (`fireCannon`, `ball` eShot, `drawBall`, `sfx.cannon`):** every ~3 s (`max(100, 200 - 12 × level)` steps)
+    the gun port nearest the sub lobs a ball (gravity `CANNON_G = 0.06`) to come down over the sub; it splashes and sinks
+    at 1.2 px/step. 1 life on contact. Torpedoes, the laser and the bubble screen destroy it. First shot: "PIRATE SHIP -
+    CANNON FIRE". Tested (sub still): deep 1 hit / 7 balls, surfaced 5 / 6.
+  - **Pirates:** `PIRATE_CREW = 3` per ship, one every 1.5 to 2.7 s, jump off the deck ("PIRATES IN THE WATER"). They are
+    `diver`s with `pirate: true` (same hunt, fuse, decoys, bubble screen, 30 points), drawn by `drawPirate`: striped
+    shirt, red bandana, cutlass in the teeth, rum barrel bomb with a burning fuse. Warning: "LOCKED TARGET - PIRATE INBOUND".
+  - Sunk: "SPLASH ONE PIRATE SHIP". Both are on the welcome screen `ROSTER`, now 3 rows (the last one centered).
 - **Aircraft art (owner: realistic, gray):** `drawHeli` is a navy-gray NH90 / Caiman-style naval helicopter
   (rounded nose, tinted cockpit, engine housing, sliding door, sponson, wheels, swept fin, tail rotor, red
   anti-collision light; two foreshortened main blades over a blur disc, folded back while `parked`). `drawDrone` is a

@@ -206,6 +206,12 @@ const sfx = {
     nz(o, t + 0.8, 2.5, 0.3, 'lowpass', 300, 40, 1, 0.5);
     os(o, t + 0.05, 2.5, 'sine', 45, 25, 0.25, 0.1);
   },
+  cannon(x) { // black-powder gun: sharp bang, deep boom, rumble
+    if (!ac) return; const t = ac.currentTime, o = sfxOut(x, 0.45, 2);
+    nz(o, t, 0.08, 0.5, 'highpass', 2500, 900, 0.7, 0.001);
+    os(o, t, 0.6, 'sine', 110, 35, 0.5, 0.002);
+    nz(o, t, 1.3, 0.3, 'lowpass', 1500, 90, 0.7, 0.01);
+  },
   impact(x, y) { // torpedo hits a hull: blast plus inharmonic metal ring
     if (!ac) return; const t = ac.currentTime, o = sfxOut(x, 0.5, 1.5);
     nz(o, t, 0.45, 0.35, 'lowpass', 3000, 250, 0.7, 0.003);
@@ -436,7 +442,7 @@ function startLevel() {
   if (level >= LIFE_LEVEL && lives < 3) { lives++; flash = { msg: 'MISSION ' + level + ' - RESUPPLY: +1 LIFE', t: 120 }; } // hard missions: a helping hand
   heartsLeft = level >= LIFE_LEVEL ? LIFE_DROPS : 0; nextHeart = levelLen * 0.3; // life pickups, at 30% and 65% of the mission
   belugaLeft = level < UNLOCK.swimmers ? 0 : MOBILE ? level - 1 : level * 2 - 3; belugaGap = (levelLen - 1000) / belugaLeft; nextBeluga = 300 + belugaGap * 0.4;
-  enemies.push({ type: 'boat', x: W + 40, y: SURFACE - 24, w: 110, h: 40, hp: 3, pts: 40, fire: 120, rpA: -2.6 }); // a frigate opens every level
+  spawnBoat(W + 40); // a frigate (or a pirate ship) opens every level
   lvlSave = { score, kills, allies };
   storm = stormLvl = stormTarget(); lightning = 0; // missions 3 and 5 start in the storm
 }
@@ -468,7 +474,7 @@ function impact(x, y, e) {
     const an = Math.random() * Math.PI * 2, sp = rnd(3, 6);
     particles.push({ kind: 'spark', x, y, vx: Math.cos(an) * sp, vy: Math.sin(an) * sp, life: 14, max: 14 });
   }
-  const bits = e.type === 'octo' ? ['#7a3a2c', '#9a5240'] : e.type === 'eel' ? ['#4e4b2c', '#8c7f45', '#ffe14a'] : e.type === 'beluga' || e.type === 'diver' ? ['#3a3f45', '#222', '#555'] : ['#3a3f45', '#6b7682', '#222', e.type === 'boat' ? '#c62828' : '#555'];
+  const bits = e.pirate && e.type === 'boat' ? ['#4a2c17', '#6b4423', '#2e1a0d', '#d9ccaa'] : e.type === 'octo' ? ['#7a3a2c', '#9a5240'] : e.type === 'eel' ? ['#4e4b2c', '#8c7f45', '#ffe14a'] : e.type === 'beluga' || e.type === 'diver' ? ['#3a3f45', '#222', '#555'] : ['#3a3f45', '#6b7682', '#222', e.type === 'boat' ? '#c62828' : '#555'];
   for (let i = 0; i < 6; i++) // pieces fly away from the torpedo, then sink
     particles.push({ kind: 'debris', x, y, vx: rnd(-1, 2.5), vy: rnd(-2, 1), life: 80, max: 80, size: rnd(2, 4.5), rot: rnd(0, 6), spin: rnd(-0.3, 0.3), color: bits[i % bits.length] });
   for (let i = 0; i < 3; i++)
@@ -515,6 +521,7 @@ function megaBoom(x, y, victim) {
 // mines and depth charges go for the nearest decoy instead of the sub and blow up on it.
 const DECOY_RANGE = 400, DECOY_LIFE = 360, DECOY_COOL = 300; // px, steps (6 s), steps (5 s): unlimited, reload time
 // Progressive missions (owner: level 1 must stay simple): weapons and threats unlock with the mission number
+const PIRATE_LEVEL = 2, PIRATE_CHANCE = 0.2, PIRATE_CREW = 3, CANNON_G = 0.06; // from mission 2, 1 ship in 5 is a pirate ship; pirates per ship; ball gravity (px/step^2)
 const UNLOCK = { decoys: 2, swimmers: 2, bubbles: 3, drone: MOBILE ? Infinity : 3 }; // no air drone on mobile
 function locked(what) { // true (with a buzz and a message) while that weapon is not issued yet
   if (level >= UNLOCK[what]) return false;
@@ -525,6 +532,7 @@ function locked(what) { // true (with a buzz and a message) while that weapon is
 const NEWS = {
   2: [['D', 'DECOYS ISSUED: lure torpedoes, mines and whales'], ['!', 'NEW THREAT: KAMIKAZE WHALES with bombs'],
       ['!', 'NEW THREAT: COMBAT SWIMMERS from ships and helos'], ['!', 'NEW THREAT: ELECTRIC EELS jam your weapons'],
+      ['!', 'NEW THREAT: PIRATE SHIPS: cannons, rum barrel bombs'],
       ['!', 'WEATHER: STORM FRONT from mid-mission']],
   3: [['E', 'BUBBLE SCREEN ISSUED: blasts close threats away'], ...MOBILE ? [] : [['W', 'AIR DRONE ISSUED: kills drones, rams helos']],
       ['!', 'ENEMY SUBS now deploy decoys']],
@@ -580,7 +588,7 @@ function bubbleBurst() {
     if (s.type === 'torp') { // turned away, keeps its speed
       const v = Math.hypot(s.vx, s.vy || 0), h = Math.atan2(dy, dx);
       s.vx = Math.cos(h) * v; s.vy = Math.sin(h) * v; s.a = h - Math.PI;
-    } else if (s.type === 'charge') { s.dead = true; sfx.pop(s.x, s.y); score += 5; }
+    } else if (s.type === 'charge' || s.type === 'ball') { s.dead = true; sfx.pop(s.x, s.y); score += 5; }
     else if (s.type === 'brk') { s.dead = true; boom(s.x + 6, s.y + 2, false); score += 5; }
   }
 }
@@ -677,8 +685,15 @@ function spawnBeluga() {
 }
 
 // Combat swimmers: jump from boats / fall from helicopters with a bomb on their back, then hunt like the beluga
-function spawnDiver(x, y, svx, vy) {
-  enemies.push({ type: 'diver', x, y, w: 44, h: 20, hp: 1, pts: 30, t: 0, vx: 0, svx, vy, face: -1, life: 720, bomb: true, air: true });
+function spawnDiver(x, y, svx, vy, pirate) { // pirate: sword in the mouth, a rum barrel bomb on the back
+  enemies.push({ type: 'diver', x, y, w: 44, h: 20, hp: 1, pts: 30, t: 0, vx: 0, svx, vy, face: -1, life: 720, bomb: true, air: true, pirate });
+}
+
+// Surface ship: a frigate, or from mission 2 a pirate ship (1 in 5): cannon balls and pirates with a rum barrel bomb
+function spawnBoat(x) {
+  if (level >= PIRATE_LEVEL && Math.random() < PIRATE_CHANCE)
+    enemies.push({ type: 'boat', pirate: true, x, y: SURFACE - 24, w: 110, h: 40, hp: 3, pts: 50, fire: rnd(60, 100), crew: PIRATE_CREW, crewT: rnd(30, 90) });
+  else enemies.push({ type: 'boat', x, y: SURFACE - 24, w: 110, h: 40, hp: 3, pts: 40, fire: 120, rpA: -2.6 });
 }
 
 function spawnEnemy() {
@@ -697,7 +712,7 @@ function spawnEnemy() {
   } else if (r < 0.5 + subChance) {
     enemies.push({ type: 'sub', x, y: rnd(SURFACE + 40, H - 160), w: 108, h: 40, hp: 3, pts: 50, vx: 0.15, fire: rnd(80, 180) });
   } else if (r < 0.5 + subChance + boatChance && !enemies.some(e => e.type === 'boat')) {
-    enemies.push({ type: 'boat', x, y: SURFACE - 24, w: 110, h: 40, hp: 3, pts: 40, fire: 120, rpA: -2.6 });
+    spawnBoat(x);
   } else {
     const h = rnd(50, Math.min(150, 90 + level * 10));
     enemies.push({ type: 'rock', x, y: groundY(camX + x) - h, w: 36, h: h + 20, hp: Infinity });
@@ -897,6 +912,18 @@ function damagePlayer() {
   if (lives <= 0) { state = 'over'; retries--; sfx.lose(); }
 }
 
+function fireCannon(e) { // the gun port nearest the sub fires a ball, lobbed to come down on it
+  const mx = e.x + (player.x + 46 < e.x + 55 ? 24 : 80), my = e.y + 20, vy = -rnd(1.8, 2.6);
+  const t = (-vy + Math.sqrt(vy * vy + 2 * CANNON_G * Math.max(0, SURFACE - my))) / CANNON_G; // steps until it hits the water
+  const vx = Math.max(-4, Math.min(1.5, (player.x + 46 + player.vx * 30 - mx) / t));
+  eShots.push({ type: 'ball', x: mx - 2.5, y: my - 2.5, w: 5, h: 5, vx, vy });
+  particles.push({ kind: 'flash', x: mx, y: my, life: 8, max: 8, size: 5 });
+  for (let i = 0; i < 6; i++) particles.push({ kind: 'smoke', x: mx + rnd(-3, 3), y: my + rnd(-3, 3), vx: vx * 0.15 + rnd(-0.3, 0.3), vy: rnd(-0.5, 0), life: 60, max: 60, size: rnd(3, 6), color: '#e6e3dc' });
+  sfx.cannon(mx); shake = Math.max(shake, 2);
+  if (!e.warned) { e.warned = true; if (!(flash && flash.danger)) flash = { msg: 'PIRATE SHIP - CANNON FIRE', t: 60, danger: true }; }
+  e.fire = Math.max(100, 200 - level * 12) * rnd(0.8, 1.2);
+}
+
 function killEnemy(e, safe) { // safe: the swimmer's bomb can't hurt the sub (bubble screen)
   e.dead = true; boom(e.x + e.w / 2, e.y + e.h / 2);
   if (e.type === 'boss') { // sunk: huge blast, its rockets go dead, the mission ends a bit later
@@ -905,6 +932,7 @@ function killEnemy(e, safe) { // safe: the swimmer's bomb can't hurt the sub (bu
     for (const s of eShots) if (s.type === 'brk') { s.dead = true; boom(s.x + 6, s.y + 2, false); }
     flash = { msg: 'SPLASH ONE ' + e.name + ' - BOSS DOWN', t: 150 };
   }
+  if (e.pirate && e.type === 'boat' && !(flash && flash.danger)) flash = { msg: 'SPLASH ONE PIRATE SHIP', t: 60 };
   if (['sub', 'boat', 'heli', 'drone', 'boss'].includes(e.type)) { // burning wreck sinks (or falls into the sea)
     const w = { ...e, flash: 0, marks: [...(e.marks || [])] };
     for (let i = 0; i < 3; i++) addMark(w, w.x + rnd(0, w.w * 0.5));
@@ -1074,7 +1102,7 @@ function update() {
       if (y2 < SURFACE || y2 > groundY(camX + x2)) break;
       target = enemies.find(e => !e.dead && x2 > e.x - 4 && x2 < e.x + e.w + 4 && y2 > e.y - 4 && y2 < e.y + e.h + 4); // beam is a few px wide
       if (target) break;
-      const charge = eShots.find(sh => !sh.dead && (sh.type === 'charge' || sh.type === 'brk') && x2 > sh.x - 4 && x2 < sh.x + sh.w + 4 && y2 > sh.y - 4 && y2 < sh.y + sh.h + 4);
+      const charge = eShots.find(sh => !sh.dead && (sh.type === 'charge' || sh.type === 'brk' || sh.type === 'ball') && x2 > sh.x - 4 && x2 < sh.x + sh.w + 4 && y2 > sh.y - 4 && y2 < sh.y + sh.h + 4);
       if (charge) { charge.dead = true; boom(charge.x + 5, charge.y + 7, false); sfx.hit(); score += 5; break; } // depth charges pop instantly
     }
     laser = { x1, y1, x2, y2, hit: d <= LASER_RANGE };
@@ -1268,7 +1296,15 @@ function update() {
       }
       if (e.type === 'drone' && !e.climb) droneLaser(e);
     }
-    if (e.type === 'boat') {
+    if (e.type === 'boat' && e.pirate) { // pirate ship: lobs cannon balls at the sub, pirates jump into the sea
+      e.y = SURFACE - 24 + Math.sin(T * 0.03) * 2 + (e.sink || 0);
+      if (e.crew > 0 && e.x < W - 60 && e.x > 150 && --e.crewT <= 0) {
+        e.crew--; e.crewT = rnd(90, 160); spawnDiver(e.x + rnd(20, 70), e.y + 6, 0.9, -2.4, true);
+        if (!(flash && flash.danger) && e.crew === PIRATE_CREW - 1) flash = { msg: 'PIRATES IN THE WATER', t: 60, danger: true };
+      }
+      if (e.x < W - 40 && e.x > 0 && --e.fire <= 0) fireCannon(e);
+    }
+    else if (e.type === 'boat') {
       if (T % 8 === 0) particles.push({ kind: 'smoke', x: e.x + 61, y: e.y, vx: 0.3, vy: -0.6, life: 50, max: 50, size: 4 });
       e.y = SURFACE - 24 + Math.sin(T * 0.03) * 2 + (e.sink || 0);
       if (e.x < W - 120 && e.x > 150 && (e.diverT ??= level >= UNLOCK.swimmers && Math.random() < 0.35 ? rnd(60, 200) : Infinity, --e.diverT <= 0)) { // a swimmer jumps off the deck
@@ -1399,6 +1435,20 @@ function update() {
       if (!s.boost) particles.push({ kind: 'bubble', x: cx - Math.cos(s.a) * 8, y: cy - Math.sin(s.a) * 8, vx: rnd(-0.3, 0.3), vy: rnd(-0.5, 0), life: 30, max: 30, size: rnd(1, 2.2) }); // cavitation trail
       if (--s.life <= 0 || cy > groundY(camX + cx)) { s.dead = true; boom(cx, cy, false); }
     }
+    else if (s.type === 'ball') { // cannon ball: lobbed through the air, then sinks slowly
+      if (!s.wet) {
+        s.vy += CANNON_G; s.x += s.vx; s.y += s.vy;
+        if (T % 2 === 0) particles.push({ kind: 'smoke', x: s.x + 2.5, y: s.y + 2.5, vx: 0, vy: -0.1, life: 25, max: 25, size: 1.5, color: '#d9d6cf' });
+        if (s.vy > 0 && s.y + 2.5 > SURFACE) { // splash!
+          s.wet = true; s.vx *= 0.3; s.vy = 1.2; noise(0.15, 0.06);
+          for (let i = 0; i < 8; i++) particles.push({ kind: 'drop', x: s.x + 2.5, y: SURFACE, vx: rnd(-1.2, 1.2), vy: rnd(-3, -1), life: 30, max: 30, size: rnd(1, 2) });
+        }
+      } else {
+        s.vx *= 0.95; s.x += s.vx - scroll * 0.4; s.y += s.vy;
+        if (T % 4 === 0) particles.push({ kind: 'bubble', x: s.x + 2.5, y: s.y, vx: 0, vy: -0.5, life: 30, max: 30, size: rnd(0.8, 1.6) });
+        if (s.y + s.h > groundY(camX + s.x + 2.5)) { s.dead = true; for (let i = 0; i < 4; i++) particles.push({ kind: 'smoke', x: s.x + 2.5, y: s.y + 4, vx: rnd(-0.5, 0.5), vy: -0.3, life: 40, max: 40, size: rnd(2, 4), color: '#8a7a5a' }); } // sand puff
+      }
+    }
     else if (s.type === 'bcl') { // boss bubble wall: our torpedoes and H-bombs go off in it
       s.r = Math.min(BOSS_BCL_R, s.r + 2.5);
       if (T % 2 === 0) { const a = rnd(0, 7), r = rnd(0, s.r); particles.push({ kind: 'bubble', x: s.x + Math.cos(a) * r, y: s.y + Math.sin(a) * r, vx: rnd(-0.3, 0.3), vy: rnd(-0.8, -0.2), life: 40, max: 40, size: rnd(1, 3) }); }
@@ -1485,7 +1535,7 @@ function update() {
   player.threat = th < WARN_RANGE ? th : Infinity;
   if (thO && th < WARN_RANGE && !thO.warned) { // a new threat has us locked: danger message, once per threat
     thO.warned = true;
-    const what = { asm: 'MISSILE', brk: 'SHKVAL', torp: 'TORPEDO', beluga: 'KAMIKAZE WHALE', diver: 'COMBAT SWIMMER', drone: 'DRONE' }[thO.type];
+    const what = thO.pirate ? 'PIRATE' : { asm: 'MISSILE', brk: 'SHKVAL', torp: 'TORPEDO', beluga: 'KAMIKAZE WHALE', diver: 'COMBAT SWIMMER', drone: 'DRONE' }[thO.type];
     if (what && !(flash && flash.danger && flash.t > 30)) flash = { msg: 'LOCKED TARGET - ' + what + ' INBOUND', t: 70, danger: true };
   }
   if (player.threat === Infinity) player.beepT = 0;
@@ -1971,6 +2021,46 @@ function drawDiver(e) { // combat swimmer in a black wetsuit with a bomb on the 
   ctx.restore();
 }
 
+function drawPirate(e) { // pirate swimming, head on the left: striped shirt, bandana, cutlass in the teeth, rum barrel bomb on the back
+  const cx = e.x + 22, cy = e.y + 11, kick = Math.sin(e.t * (e.air ? 2 : 12)) * 3;
+  ctx.save(); ctx.translate(cx, cy);
+  ctx.rotate(e.air ? (e.vy < 0 ? 0.6 : 1.3) * -e.face : Math.max(-0.5, Math.min(0.5, e.vy * 0.4 * e.face))); ctx.scale(e.face > 0 ? -1.5 : 1.5, 1.5);
+  ctx.lineCap = 'round'; ctx.strokeStyle = '#2a2f45'; ctx.lineWidth = 3; // trousers
+  ctx.beginPath(); ctx.moveTo(4, -0.5); ctx.lineTo(11, -1 + kick); ctx.moveTo(4, 0.8); ctx.lineTo(11, 1.5 - kick); ctx.stroke();
+  ctx.fillStyle = '#b07a52'; // bare feet
+  ctx.beginPath(); ctx.ellipse(13, -1 + kick, 2.2, 1.1, 0, 0, 7); ctx.ellipse(13, 1.5 - kick, 2.2, 1.1, 0, 0, 7); ctx.fill();
+  ctx.save(); ctx.beginPath(); ctx.ellipse(-1, 0, 7.5, 3.6, 0, 0, 7); ctx.clip(); // striped shirt
+  ctx.fillStyle = '#e6dfcf'; ctx.fillRect(-9, -4, 16, 8);
+  ctx.fillStyle = '#9a1c1c'; for (let sx = -8; sx < 5; sx += 3) ctx.fillRect(sx, -4, 1.4, 8);
+  ctx.fillStyle = '#4a2c17'; ctx.fillRect(4, -4, 2, 8); // belt
+  ctx.restore();
+  ctx.strokeStyle = '#b07a52'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-5, 1.5); ctx.lineTo(-13, 3 + kick * 0.3); ctx.stroke(); // arm
+  ctx.fillStyle = '#b07a52'; ctx.beginPath(); ctx.arc(-10, -1, 3.2, 0, 7); ctx.fill(); // head
+  ctx.fillStyle = '#2a1a10'; ctx.beginPath(); ctx.arc(-10.5, 0.3, 2.6, 0.2, Math.PI - 0.2); ctx.fill(); // beard
+  ctx.fillStyle = '#b3202a'; ctx.beginPath(); ctx.arc(-10, -1.3, 3.4, Math.PI, 0); ctx.fill(); // bandana
+  ctx.beginPath(); ctx.moveTo(-7, -2); ctx.lineTo(-4.5, -3.2); ctx.lineTo(-4.8, -1.2); ctx.fill(); // knot
+  ctx.fillStyle = '#111'; ctx.fillRect(-12.6, -1.6, 0.9, 0.9); // eye
+  ctx.fillStyle = '#d4af37'; ctx.fillRect(-8.6, 0.2, 0.8, 0.8); // earring
+  ctx.fillStyle = '#d8dde2'; // cutlass held in the teeth: curved blade forward, hilt behind
+  ctx.beginPath(); ctx.moveTo(-12, 0.4); ctx.quadraticCurveTo(-18, 0, -22, -1.6); ctx.quadraticCurveTo(-18, 1.2, -12, 1.4); ctx.fill();
+  ctx.fillStyle = '#d4af37'; ctx.fillRect(-12, -0.4, 0.9, 2.6); // guard
+  ctx.fillStyle = '#4a2c17'; ctx.fillRect(-11.1, 0.4, 3.4, 1); // grip
+  if (e.bomb) {
+    ctx.fillStyle = '#7a4a22'; ctx.beginPath(); ctx.ellipse(0, -6, 5.5, 3, 0, 0, 7); ctx.fill(); // rum barrel
+    ctx.fillStyle = '#5a3418'; ctx.fillRect(-4.5, -6.3, 9, 0.6); // staves
+    ctx.fillStyle = '#2b2b2b'; ctx.fillRect(-3.4, -8.8, 1, 5.6); ctx.fillRect(2.4, -8.8, 1, 5.6); // iron hoops
+    ctx.strokeStyle = '#3a2a1a'; ctx.lineWidth = 0.6; ctx.beginPath(); ctx.moveTo(1, -8.8); ctx.quadraticCurveTo(2, -11, 3.5, -11.2); ctx.stroke(); // fuse
+    const on = e.fuse ? T % 4 < 2 : T % 10 < 6;
+    ctx.fillStyle = on ? (e.fuse ? '#fff' : '#ffd23f') : '#ff6a1a'; ctx.beginPath(); ctx.arc(3.6, -11.3, e.fuse ? 1.8 : 1.1, 0, 7); ctx.fill(); // spark
+  }
+  ctx.restore();
+}
+
+function drawBall(s) { // iron cannon ball
+  ctx.fillStyle = '#1c1d1f'; ctx.beginPath(); ctx.arc(s.x + 2.5, s.y + 2.5, 2.5, 0, 7); ctx.fill();
+  ctx.fillStyle = '#6b7078'; ctx.beginPath(); ctx.arc(s.x + 1.7, s.y + 1.7, 0.8, 0, 7); ctx.fill();
+}
+
 function drawBeluga(e) { // white whale with a bomb strapped on its back
   const cx = e.x + 25, cy = e.y + 15, wag = Math.sin(e.t * 7) * 0.35;
   ctx.save(); ctx.translate(cx, cy); ctx.rotate(Math.max(-0.4, Math.min(0.4, e.vy * 0.35 * e.face))); if (e.face > 0) ctx.scale(-1, 1);
@@ -2028,6 +2118,45 @@ function drawBoat(e) { // stealth frigate (Naval Group FDI) facing left
   ctx.fillStyle = '#7d858c'; ctx.fillRect(x + 83, y + 9, 1, 6);
   ctx.fillStyle = '#eceff1'; ctx.fillRect(x + 86, y + 14, 22, 1);                   // helipad marking
   drawRampart(x + 14, y + 11, e.rpA ?? -2.6, e.rpKick || 0);
+}
+
+function drawPirateShip(e) { // three-masted pirate galleon facing left: wooden hull, gun ports, square sails, Jolly Roger
+  const x = e.x, y = e.y, wave = Math.sin(T * 0.12);
+  ctx.strokeStyle = '#3b2412'; ctx.lineWidth = 1.6; // bowsprit
+  ctx.beginPath(); ctx.moveTo(x + 6, y + 12); ctx.lineTo(x - 14, y + 2); ctx.stroke();
+  ctx.lineWidth = 0.5; ctx.strokeStyle = 'rgba(30,20,10,0.7)'; ctx.beginPath(); // rigging
+  ctx.moveTo(x - 13, y + 2.5); ctx.lineTo(x + 30, y - 30); ctx.lineTo(x + 60, y - 40); ctx.lineTo(x + 88, y - 22); ctx.lineTo(x + 108, y + 4);
+  ctx.moveTo(x + 30, y - 30); ctx.lineTo(x + 14, y + 12); ctx.moveTo(x + 60, y - 40); ctx.lineTo(x + 76, y + 12); ctx.stroke();
+  ctx.fillStyle = '#3b2412'; // masts
+  ctx.fillRect(x + 29.2, y - 31, 1.6, 44); ctx.fillRect(x + 59.2, y - 41, 1.8, 54); ctx.fillRect(x + 87.3, y - 23, 1.4, 30);
+  const sail = (l, t, r, b) => { // square sail, billowing
+    const m = (t + b) / 2, c = (l + r) / 2;
+    ctx.fillStyle = '#d9ccaa'; ctx.beginPath(); ctx.moveTo(l, t); ctx.lineTo(r, t);
+    ctx.quadraticCurveTo(r + 1.5, m, r - 0.5, b); ctx.quadraticCurveTo(c, b + 3, l + 0.5, b); ctx.quadraticCurveTo(l - 1.5, m, l, t); ctx.fill();
+    ctx.fillStyle = '#b9a982'; ctx.fillRect(c - 0.6, t + 1, 1.2, b - t); ctx.fillRect(l + 1, m, r - l - 2, 1); // seams
+    ctx.fillStyle = '#3b2412'; ctx.fillRect(l - 1.5, t - 1, r - l + 3, 1.2); // yard
+  };
+  sail(x + 19, y - 27, x + 41, y - 13); sail(x + 17, y - 11, x + 43, y + 6);
+  sail(x + 50, y - 37, x + 70, y - 19); sail(x + 47, y - 16, x + 73, y + 6);
+  ctx.fillStyle = '#d9ccaa'; ctx.beginPath(); ctx.moveTo(x + 88, y - 21); ctx.lineTo(x + 101, y + 3); ctx.lineTo(x + 81, y + 3); ctx.fill(); // lateen mizzen
+  ctx.fillStyle = '#3b2412'; ctx.fillRect(x + 56.5, y - 25, 7, 2.5); // crow's nest
+  ctx.fillStyle = '#111'; // Jolly Roger, flapping
+  ctx.beginPath(); ctx.moveTo(x + 61, y - 41); ctx.quadraticCurveTo(x + 66, y - 42 + wave, x + 72, y - 41 + wave * 1.5);
+  ctx.lineTo(x + 72, y - 34 + wave * 1.5); ctx.quadraticCurveTo(x + 66, y - 35 + wave, x + 61, y - 34); ctx.fill();
+  ctx.fillStyle = '#eee'; ctx.beginPath(); ctx.arc(x + 66, y - 38.6 + wave * 0.8, 1.4, 0, 7); ctx.fill(); // skull
+  ctx.fillRect(x + 63.6, y - 36.4 + wave * 0.8, 4.8, 0.6); // crossbones
+  ctx.fillStyle = '#4a2c17'; // hull: low waist, high stern castle
+  ctx.beginPath(); ctx.moveTo(x, y + 10); ctx.lineTo(x + 84, y + 13); ctx.lineTo(x + 86, y + 5); ctx.lineTo(x + 108, y + 3); ctx.lineTo(x + 111, y + 8);
+  ctx.lineTo(x + 106, y + 28); ctx.quadraticCurveTo(x + 60, y + 36, x + 16, y + 31); ctx.quadraticCurveTo(x + 6, y + 22, x, y + 10); ctx.fill();
+  ctx.fillStyle = '#2e1a0d'; ctx.beginPath(); ctx.moveTo(x + 5, y + 24); ctx.lineTo(x + 108, y + 24); // dark wet lower hull
+  ctx.lineTo(x + 106, y + 28); ctx.quadraticCurveTo(x + 60, y + 36, x + 16, y + 31); ctx.quadraticCurveTo(x + 9, y + 27, x + 5, y + 24); ctx.fill();
+  ctx.fillStyle = '#6b4423'; ctx.fillRect(x + 4, y + 14, 104, 1.2); ctx.fillRect(x + 6, y + 22, 101, 1); // planking
+  ctx.fillStyle = '#c9a227'; ctx.fillRect(x + 3, y + 16.5, 105, 1.2); ctx.fillRect(x + 87, y + 6, 20, 0.8); // gilded wales
+  ctx.fillStyle = '#1a0f07'; // gun ports, with the muzzles
+  for (const gx of [24, 38, 52, 66, 80]) { ctx.fillRect(x + gx - 2, y + 18.5, 4, 3); }
+  ctx.fillStyle = '#2b2b2b'; for (const gx of [24, 38, 52, 66, 80]) ctx.fillRect(x + gx - 3, y + 19.4, 1.5, 1.4);
+  ctx.fillStyle = T % 50 < 40 ? '#ffd27a' : '#e0a040'; ctx.fillRect(x + 92, y + 8, 2.5, 2); ctx.fillRect(x + 97, y + 8, 2.5, 2); ctx.fillRect(x + 102, y + 8, 2.5, 2); // lit stern windows
+  ctx.fillStyle = '#c9a227'; ctx.beginPath(); ctx.arc(x + 110, y + 2, 1.3, 0, 7); ctx.fill(); // stern lantern
 }
 
 function drawRampart(x, y, a, kick) { // Naval Group Rampart: turret with 4 boxy modules, tube grid on the front face
@@ -2227,11 +2356,11 @@ function drawEnemy(e, extraRot = 0) {
   if (e.type === 'mine') drawMine(e);
   else if (e.type === 'octo') drawOcto(e);
   else if (e.type === 'sub') drawShip(e.x, e.y - 4, '#c62828', false, 3, true, '#6b7682');
-  else if (e.type === 'boat') drawBoat(e);
+  else if (e.type === 'boat') e.pirate ? drawPirateShip(e) : drawBoat(e);
   else if (e.type === 'heli') drawHeli(e);
   else if (e.type === 'drone') drawDrone(e);
   else if (e.type === 'beluga') drawBeluga(e);
-  else if (e.type === 'diver') drawDiver(e);
+  else if (e.type === 'diver') e.pirate ? drawPirate(e) : drawDiver(e);
   else if (e.type === 'eel') drawEel(e);
   else if (e.type === 'boss') drawBoss(e);
   else drawRock(e);
@@ -2400,6 +2529,8 @@ const ROSTER = [
   { name: 'NAVAL HELO', note: 'Depth charges. Use CIWS', e: { x: 0, y: 0 }, f: drawHeli, bx: -10, by: -2, w: 74, h: 30 },
   { name: 'ATTACK DRONE', note: 'Laser near surface: dive', e: { x: 0, y: 0, t: 0 }, f: drawDrone, bx: 0, by: 0, w: 32, h: 16 },
   { name: 'ANTI-SHIP MISSILE', note: 'Hits surfaced subs: CIWS', e: { x: 0, y: 0, w: 14, h: 4, a: Math.PI }, f: drawASM, bx: -2, by: -4, w: 18, h: 12 },
+  { name: 'PIRATE SHIP', m: PIRATE_LEVEL, note: 'Cannon balls sink: dodge', e: { x: 0, y: 0 }, f: drawPirateShip, bx: -14, by: -42, w: 126, h: 78 },
+  { name: 'PIRATE', m: PIRATE_LEVEL, note: 'Rum barrel bomb on back', e: { x: 0, y: 0, t: 0, vy: 0, face: -1, bomb: true }, f: drawPirate, bx: -12, by: -8, w: 56, h: 30 },
 ];
 const SHOWCASE = [
   { name: 'YOUR BOAT: SUFFREN-CLASS SSN', note: MOBILE ? 'Torpedoes, H-bomb, CIWS' : 'Torpedoes, laser, H-bomb, CIWS', mesh: 'mine', s: 1.9 },
@@ -2423,18 +2554,19 @@ function drawHelp(paused) { // full-screen welcome page (threat recognition); al
     text(m.name, 178, 12, i ? '#ff8a80' : '#7f7', cx); text(m.note, 193, 10, '#cde', cx);
   });
   ROSTER.forEach((r, i) => { // 2D cards
-    const cx = 10 + (i % 4) * 196, cy = 206 + Math.floor(i / 4) * 66, cw = 188, ch = 60;
+    const row = Math.floor(i / 4), inRow = Math.min(4, ROSTER.length - row * 4); // 3 rows, the last one centered
+    const cx = 10 + (i % 4) * 196 + (4 - inRow) * 98, cy = 204 + row * 44, cw = 188, ch = 41;
     ctx.fillStyle = 'rgba(10,30,50,0.85)'; ctx.fillRect(cx, cy, cw, ch);
     ctx.strokeStyle = r.m ? 'rgba(255,90,80,0.5)' : 'rgba(255,163,26,0.45)'; ctx.lineWidth = 1; ctx.strokeRect(cx + 0.5, cy + 0.5, cw - 1, ch - 1);
     r.e.t = T * 0.02;
-    const k = Math.min(52 / r.w, 40 / r.h);
+    const k = Math.min(52 / r.w, 33 / r.h);
     ctx.save(); ctx.beginPath(); ctx.rect(cx + 1, cy + 1, cw - 2, ch - 2); ctx.clip(); // card text and art stay inside
     ctx.save(); ctx.beginPath(); ctx.rect(cx + 2, cy + 2, 60, ch - 4); ctx.clip();
     ctx.translate(cx + 32 - (r.w / 2 + r.bx) * k, cy + ch / 2 - (r.h / 2 + r.by) * k); ctx.scale(k, k); r.f(r.e);
     ctx.restore();
-    text(r.name, cy + 22, 12, '#ffb347', cx + 68, 'left');
-    text(r.note, cy + 38, 9.5, '#cde', cx + 68, 'left');
-    if (r.m) text('FROM MISSION ' + r.m, cy + 52, 9, '#ff8a80', cx + 68, 'left');
+    text(r.name, cy + 14, 11, '#ffb347', cx + 68, 'left');
+    text(r.note, cy + 26, 9.5, '#cde', cx + 68, 'left');
+    if (r.m) text('FROM MISSION ' + r.m, cy + 37, 9, '#ff8a80', cx + 68, 'left');
     ctx.restore();
   });
   if (MOBILE) {
@@ -2539,7 +2671,7 @@ function draw() {
     else { drawStarfish(p.x + 10, p.y + 10, 12, T * 0.05, T % 30 < 15 ? '#ffb347' : '#ff7f50'); text('x2', p.y + 14, 10, '#fff', p.x + 10); }
   }
   for (const e of enemies) drawEnemy(e); // not forEach: it would pass the index as the rotation
-  eShots.forEach(s => s.type === 'torp' ? drawTorpedo(s, true) : s.type === 'sam' || s.type === 'atr' ? drawSAM(s) : s.type === 'cm' ? drawCM(s) : s.type === 'asm' ? drawASM(s) : s.type === 'brk' ? drawShkval(s) : s.type === 'bcl' ? drawBubbleWall(s) : drawCharge(s));
+  eShots.forEach(s => s.type === 'torp' ? drawTorpedo(s, true) : s.type === 'sam' || s.type === 'atr' ? drawSAM(s) : s.type === 'cm' ? drawCM(s) : s.type === 'asm' ? drawASM(s) : s.type === 'brk' ? drawShkval(s) : s.type === 'bcl' ? drawBubbleWall(s) : s.type === 'ball' ? drawBall(s) : drawCharge(s));
   decoys.forEach(d => { ctx.globalAlpha = Math.min(1, d.life / 40); drawDecoy(d); ctx.globalAlpha = 1; });
   torps.forEach(t => drawTorpedo(t, false));
   missiles.forEach(drawHBomb);
