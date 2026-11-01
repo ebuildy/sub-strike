@@ -349,17 +349,23 @@ kamikaze belugas.
     around). It lifts off 1 to 3 s after the frigate is on screen (`lift`), then flies as a normal heli.
     It takes off at once if the frigate is sunk.
 - **Pirate ship (owner), from mission 2 (`PIRATE_LEVEL`):** `spawnBoat(x)` makes every surface ship (the opener in
-  `startLevel` too) a pirate ship with `PIRATE_CHANCE = 0.2` (tested: 20.3% at mission 2, 0% at mission 1). It is a
+  `startLevel` too) a pirate ship with `PIRATE_CHANCE = 0.4` (0% at mission 1). `spawnEnemy` passes `PIRATE_CHANCE / (1 - FERRY_CHANCE)` so the ferry roll doesn't lower that share. It is a
   `boat` with `pirate: true`, so the lock, H-bomb, torpedo box, wreck and storm heave work as for the frigate, but it
   has no Rampart, no heli and no depth charges. `drawPirateShip`: wooden galleon, gun ports, square sails, Jolly Roger.
   - **Cannon (`fireCannon`, `ball` eShot, `drawBall`, `sfx.cannon`):** every ~3 s (`max(100, 200 - 12 × level)` steps)
     the gun port nearest the sub lobs a ball (gravity `CANNON_G = 0.06`) to come down over the sub; it splashes and sinks
     at 1.2 px/step. 1 life on contact. Torpedoes, the laser and the bubble screen destroy it. First shot: "PIRATE SHIP -
     CANNON FIRE". Tested (sub still): deep 1 hit / 7 balls, surfaced 5 / 6.
-  - **Pirates:** `PIRATE_CREW = 3` per ship, one every 1.5 to 2.7 s, jump off the deck ("PIRATES IN THE WATER"). They are
+  - **Pirates:** `PIRATE_CREW = 1` per ship (owner: too many at 3) jumps off the deck 0.5 to 1.5 s after the ship is on screen ("PIRATES IN THE WATER"). They are
     `diver`s with `pirate: true` (same hunt, fuse, decoys, bubble screen, 30 points), drawn by `drawPirate`: striped
     shirt, red bandana, cutlass in the teeth, rum barrel bomb with a burning fuse. Warning: "LOCKED TARGET - PIRATE INBOUND".
   - Sunk: "SPLASH ONE PIRATE SHIP". Both are on the welcome screen `ROSTER`, now 3 rows (the last one centered).
+- **Corsica ferry (owner), any mission:** in `spawnEnemy`, a surface ship is the ferry with `FERRY_CHANCE = 0.4` (the warship
+  that opens each mission stays a warship; no other ship spawns while it is out). A neutral ship: the global `ferry`, not in
+  `enemies`, so no lock, and torpedoes, laser and H-bombs ignore it. `drawFerry`: big yellow ferry, `w: 220`, drawn through
+  `drawEnemy` to heave in the heavy storm. Horn (`sfx.horn`) when it arrives. Every 2 to 4.3 s `dropCar` drops a car (a `ball`
+  eShot with `car: true`, `drawCar`, not aimed) from one of its 2 side doors, "CORSICA FERRY - CARS OVERBOARD" on the first. It
+  sinks like a cannon ball: 1 life on contact; torpedoes, the laser and the bubble screen destroy it.
 - **Aircraft art (owner: realistic, gray):** `drawHeli` is a navy-gray NH90 / Caiman-style naval helicopter
   (rounded nose, tinted cockpit, engine housing, sliding door, sponson, wheels, swept fin, tail rotor, red
   anti-collision light; two foreshortened main blades over a blur disc, folded back while `parked`). `drawDrone` is a
