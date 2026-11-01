@@ -208,7 +208,7 @@ kamikaze belugas.
   - an anti-ship missile homing on the surfaced sub;
   - an enemy torpedo whose course passes within 40 px of the sub;
   - a beluga or swimmer with its bomb, hunting the sub (not one lured by a decoy, falling from a heli or giving up);
-  - a drone, while the sub is in its laser zone (`player.y < SURFACE + 70`) or while it aims or fires.
+  - a drone, while the sub is in its laser zone (`player.y < SURFACE + DRONE_ZONE`) or while it aims or fires.
   - **Beep:** a short square beep every `6 + 48 × dist / 400` steps (about 0.9 s far away, 0.1 s close), higher
     and louder under `WARN_RED = 150` px.
   - **Light:** `drawWarnLight` draws a lamp on the sail at (player.x + 66.3, player.y + 17.5), inside the sub's
@@ -240,8 +240,8 @@ kamikaze belugas.
     steps (locks for the last 18), then a 15-step green beam that kills the drone ("SPLASH ONE DRONE"), and waits 50 steps.
     With no enemy drone, it dives kamikaze into a helicopter at 4.5 px/step ("DRONE ON ATTACK RUN", then "SPLASH ONE HELO"),
     and is spent. With nothing to fight, it waits over the sub.
-  - **Enemy drones** within 260 px aim at our drone instead of the sub (`e.atMine`). Their beam kills it
-    (`killMyDrone`: boom and a falling wreck, "DRONE DOWN"). Tested 1 vs 1: we win 36 of 60 duels
+  - **Enemy drones** within `DRONE_RANGE = 182` px aim at our drone instead of the sub (`e.atMine`). Their beam kills it
+    (`killMyDrone`: boom and a falling wreck, "DRONE DOWN"). Our drone opens fire within `MY_DRONE_RANGE = 161` px. Tested 1 vs 1: we win 36 of 60 duels
     (aim 48 gave 39/40, aim 60 gave 19/40).
 - **Torpedoes** fire along the sub's tilt.
   - Torpedoes are drawn like real heavyweight torpedoes (`drawTorpedo`: ogive nose, cylinder, tail
@@ -309,10 +309,10 @@ kamikaze belugas.
   - **After the shock:** each eel discharges once (`e.spent`), then dives away dim. 2 torpedoes kill
     it (40 points).
 - **Drones** don't drop bombs: they fire a laser (`droneLaser`), only when the sub is near the
-  surface (`player.y < SURFACE + 70`, within 260 px horizontally).
+  surface (`player.y < SURFACE + DRONE_ZONE`, `DRONE_ZONE = 49`, within `DRONE_RANGE = 182` px horizontally; owner: range cut 30%).
   - The drone's eye turns red and a dotted line tracks the sub for 0.5 s, then locks for 0.5 s
     (`DRONE_LOCK`), then a short red beam fires for 1/3 s and ends just past the locked point.
-  - **To dodge:** dive, or move away after the lock. The water stops the beam 100 px below the surface
+  - **To dodge:** dive, or move away after the lock. The water stops the beam 70 px below the surface
     (`DRONE_DEPTH`). The beam costs 1 life and kills allies it crosses; decoys don't fool it.
 - **Allies:** you get an ally sub every 10 kills, up to 2. After that, every 10 kills gives an
   extra life.

@@ -600,7 +600,7 @@ function bubbleBurst() {
 
 // Air drone (W): a rocket rises to the surface, bursts and throws our drone (dark gray, green lights).
 // It shoots enemy drones with its laser and dives kamikaze into helicopters. Enemy drones can laser it too
-const MY_DRONE_RANGE = 230, MY_DRONE_AIM = 54, MY_DRONE_LOCK = 18, MY_DRONE_BEAM = 15; // px, steps
+const MY_DRONE_RANGE = 161, MY_DRONE_AIM = 54, MY_DRONE_LOCK = 18, MY_DRONE_BEAM = 15; // px, steps
 function launchDrone() {
   if (locked('drone') || droneAmmo <= 0 || droneRocket || myDrone || player.jam) return;
   droneAmmo--; sfx.launch(player.x + 60);
@@ -845,9 +845,9 @@ function bolt(x1, y1, x2, y2) { // zigzag lightning line
 
 // Drone laser: only reaches the sub near the surface (water absorbs it past DRONE_DEPTH).
 // It aims for 1 s (thin blinking line), locks the target for the last 0.5 s (time to dodge), then fires for 1/3 s.
-const DRONE_DEPTH = 100, DRONE_AIM = 60, DRONE_LOCK = 30, DRONE_BEAM = 20;
+const DRONE_RANGE = 182, DRONE_ZONE = 49, DRONE_DEPTH = 70, DRONE_AIM = 60, DRONE_LOCK = 30, DRONE_BEAM = 20;
 function droneLaser(e) {
-  const ox = e.x + 12, oy = e.y + 12, md = myDrone && Math.hypot(myDrone.x + 16 - ox, myDrone.y + 7 - oy) < 260 ? myDrone : null;
+  const ox = e.x + 12, oy = e.y + 12, md = myDrone && Math.hypot(myDrone.x + 16 - ox, myDrone.y + 7 - oy) < DRONE_RANGE ? myDrone : null;
   const px = e.atMine && md ? md.x + 16 : player.x + 46, py = e.atMine && md ? md.y + 7 : player.y + 24; // our drone first, when it is near
   if (e.beam > 0) {
     e.beam--;
@@ -876,7 +876,7 @@ function droneLaser(e) {
     if (e.aim % 10 === 0) tone(1400, 0.05, 'square', 0.04);
     if (e.aim === 0) { e.beam = DRONE_BEAM; e.beamHit = false; e.lx = e.tx; e.ly = e.ty; tone(1800, 0.35, 'sawtooth', 0.08, 500); }
   } else if (e.fire > 0) e.fire--;
-  else if ((md || player.y < SURFACE + 70 && Math.abs(px - ox) < 260) && e.x > 0 && e.x < W - 40) { e.aim = DRONE_AIM; e.atMine = !!md; } // our drone, or the sub near the surface
+  else if ((md || player.y < SURFACE + DRONE_ZONE && Math.abs(px - ox) < DRONE_RANGE) && e.x > 0 && e.x < W - 40) { e.aim = DRONE_AIM; e.atMine = !!md; } // our drone, or the sub near the surface
 }
 
 // Proximity fuse: mines and depth charges arm when the sub comes close, beep fast, then blow up
@@ -1560,7 +1560,7 @@ function update() {
   for (const e of enemies) {
     if (e.dead || e.x > W) continue;
     const homing = (e.type === 'beluga' || e.type === 'diver') && e.bomb && !e.air && !e.blow && e.life > 0 && !decoyNear(e.x + e.w / 2, e.y + e.h / 2); // hunting the sub, not a decoy
-    const drone = e.type === 'drone' && (e.aim > 0 || e.beam > 0 || player.y < SURFACE + 70); // its laser can reach us
+    const drone = e.type === 'drone' && (e.aim > 0 || e.beam > 0 || player.y < SURFACE + DRONE_ZONE); // its laser can reach us
     if (homing || drone) near(e, Math.hypot(e.x + e.w / 2 - px, e.y + e.h / 2 - py));
   }
   player.threat = th < WARN_RANGE ? th : Infinity;
