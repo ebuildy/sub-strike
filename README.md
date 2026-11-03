@@ -12,6 +12,8 @@ canvas and every sound is synthesized live.
 
 ![screenshot 1](./docs/game2.png)
 
+![video](./docs/brag.mp4)
+
 ## Play
 
 **Play online: https://ebuildy.github.io/sub-strike/** (no install).
