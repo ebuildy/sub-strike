@@ -12,6 +12,7 @@ kamikaze belugas.
   the owner asks.
 - **Git repo** `ebuildy/sub-strike` (public, branch `main`). Commit or push only when the owner asks. Before a
   risky edit, back up the file to your scratch directory.
+  - **Always sign off commits** (`git commit -s`), so each one ends with a `Signed-off-by:` line.
 - **To run it:** `open index.html` on macOS. It works from `file://` and needs no server. Reopen it
   for the owner after each change.
 - **Published on GitHub Pages:** https://ebuildy.github.io/sub-strike/ serves `index.html` from the root of
@@ -493,3 +494,17 @@ kamikaze belugas.
   mention the side effects.
   - Example: 2x bigger subs make the player easier to hit.
 - Offer a tuning knob (distance, delay, speed) in one short line instead of asking questions first.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues for `ebuildy/sub-strike`, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root (created lazily). See `docs/agents/domain.md`.
