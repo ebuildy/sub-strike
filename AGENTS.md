@@ -352,9 +352,13 @@ kamikaze belugas.
 - **SCX-26 cruiser (issue #2), from mission 2 (`SCX_LEVEL`):** Naval Group's drone-carrier cruiser concept replaces the
   FDI frigate: every non-pirate warship from `spawnBoat` is a `boat` with `scx: true` (`w: 150`, hp 4, 80 points), so the
   lock, H-bomb, torpedo box, wreck and storm heave work as for the frigate. Behavior in `updateSCX(e)`, art in `drawSCX`:
-  long stealth hull, inverted bow, gun turret, forward VLS, two tall faceted towers like camel humps (the forward one with
-  the bridge, UHF panel, pyramid mast and laser; the aft one lower, with a radome), the launch zone between them at
-  (x + 82, y + 9), hangar and aft flight deck. No Rampart. It keeps depth charges, swimmers and a parked heli
+  copied (mirrored) from Naval Group's render (owner: "copy the design from the photo"). A low slab hull: only y + 14 to
+  y + 24 is above the water, and the part below is tinted to look seen through the water. It has a near-vertical bow
+  with a hawse opening, a flat transom and a raised casemate with two angled VLS slabs forward. Two plain
+  truncated-pyramid towers ("camel humps"): the forward one at x 61-87 has a window band and a square radar panel; the
+  aft one at x 96-119 has a pointed dark stack (the only smoke, at x + 104), vent slots and a grille. The launch zone
+  dips between them at (x + 91, y + 10), and the flight deck aft has railings. The outlines are constants in `SCX_P`,
+  drawn with `fillPoly`, so there are no per-frame allocations. No gun turret, mast or Rampart. It keeps depth charges, swimmers and a parked heli
   (`b.x + b.w - 34`, the same rule for both ships). Drones climb out of the launch zone (same timing as the Rampart's).
   It shows "SPLASH ONE SCX-26 CRUISER" when sunk. On the welcome `ROSTER`, which is now 3 full rows of 4.
   - **ASW missiles (`asw` eShot, `drawASW`):** first after 1.5 to 2.5 s on screen, then every `max(240, 420 - 20 × level)`

@@ -711,9 +711,9 @@ function spawnBoat(x, pirate = PIRATE_CHANCE) {
 const SCX_LEVEL = 2, SCX_SAVE = 0.5, SCX_RANGE = 260, SCX_DUO = 3; // first mission, chance to fool each weapon, reaction range (px), 2-missile salvos from
 const ASW_V = 2, ASW_TURN = 0.02, ASW_LIFE = 300; // the missile's torpedo once in the water: px/step, rad/step, steps
 function updateSCX(e) {
-  const onScreen = e.x > 20 && e.x < W - 60, lx = e.x + 82, ly = e.y + 9; // launch cells between the two towers
+  const onScreen = e.x > 20 && e.x < W - 60, lx = e.x + 91, ly = e.y + 10; // launch zone between the two towers
   e.y = SURFACE - 24 + Math.sin(T * 0.03) * 2 + (e.sink || 0);
-  if (T % 8 === 0) { particles.push({ kind: 'smoke', x: e.x + 58, y: e.y - 6, vx: 0.3, vy: -0.6, life: 50, max: 50, size: 4 }); particles.push({ kind: 'smoke', x: e.x + 104, y: e.y - 2, vx: 0.3, vy: -0.6, life: 50, max: 50, size: 4 }); }
+  if (T % 8 === 0) particles.push({ kind: 'smoke', x: e.x + 104.4, y: e.y - 9, vx: 0.3, vy: -0.6, life: 50, max: 50, size: 4 }); // the aft tower's stack
   if (e.x < W - 120 && e.x > 150 && (e.diverT ??= level >= UNLOCK.swimmers && Math.random() < 0.35 ? rnd(60, 200) : Infinity, --e.diverT <= 0)) { // a swimmer jumps off the deck
     e.diverT = Infinity; spawnDiver(e.x + 12, e.y + 6, 0.9, -2.2);
   }
@@ -2257,45 +2257,57 @@ function drawBoat(e) { // stealth frigate (Naval Group FDI) facing left
   drawRampart(x + 14, y + 11, e.rpA ?? -2.6, e.rpKick || 0);
 }
 
-function drawSCX(e) { // Naval Group SCX-26 cruiser facing left: two tall towers like camel humps, launch zone between them, aft flight deck
+function fillPoly(x, y, c, pts) { // filled polygon from flat [x0, y0, x1, y1...] offsets
+  ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(x + pts[0], y + pts[1]);
+  for (let i = 2; i < pts.length; i += 2) ctx.lineTo(x + pts[i], y + pts[i + 1]);
+  ctx.fill();
+}
+const SCX_P = { // SCX-26 outlines (offsets from e.x, e.y), made once
+  hull: [2, 14, 150, 14, 150, 24, 0.5, 24],
+  hullLow: [0.8, 24, 150, 24, 150, 31, 148, 34, 3, 34, 0, 27],
+  casemate: [31, 14, 34, 11, 118, 11, 119, 14],
+  vls1: [32.5, 12, 33.5, 9.6, 46, 8.6, 47, 11],
+  vls2: [47, 11, 48, 8.6, 60, 9.4, 60.4, 11],
+  fwdTower: [61, 11, 67.4, -3.5, 79.6, -3.5, 86.6, 11],
+  fwdLit: [61, 11, 67.4, -3.5, 69.6, -3.5, 63.6, 11],
+  aftTower: [96, 11, 100, -3, 111.6, -3, 118.6, 11],
+  aftLit: [96, 11, 100, -3, 101.8, -3, 98.4, 11],
+  stack: [103, -3, 103.7, -8.6, 105, -8.6, 105.8, -3],
+};
+function drawSCX(e) { // Naval Group SCX-26 cruiser facing left, after the official render: slab hull, two truncated-pyramid towers (camel humps), launch zone between them, VLS slabs forward, flight deck aft
   const x = e.x, y = e.y;
-  ctx.fillStyle = '#959da4'; // long stealth hull with inverted bow
-  ctx.beginPath(); ctx.moveTo(x + 8, y + 14); ctx.lineTo(x + 150, y + 14); ctx.lineTo(x + 150, y + 29); ctx.lineTo(x + 144, y + 34); ctx.lineTo(x + 5, y + 34); ctx.lineTo(x, y + 30); ctx.fill();
-  ctx.fillStyle = '#7a8289'; ctx.beginPath(); ctx.moveTo(x + 2, y + 24); ctx.lineTo(x + 150, y + 24); ctx.lineTo(x + 150, y + 29); ctx.lineTo(x + 144, y + 34); ctx.lineTo(x + 5, y + 34); ctx.lineTo(x, y + 30); ctx.fill(); // shaded lower hull
-  ctx.fillStyle = '#3a3f45'; ctx.fillRect(x + 2, y + 30, 146, 4);                  // boot topping
-  ctx.fillStyle = '#c3c9ce'; ctx.fillRect(x + 8, y + 14, 142, 1.5);                // deck edge
-  ctx.fillStyle = '#e8ebee'; ctx.font = 'bold 6px ' + FONT; ctx.textAlign = 'center'; ctx.fillText('26', x + 20, y + 22.5); // hull number
-  ctx.fillStyle = '#2b3036'; ctx.fillRect(x + 76, y + 18, 7, 3); ctx.fillRect(x + 86, y + 18, 7, 3); // boat bays
-  ctx.fillStyle = '#a7aeb4'; // stealth gun turret on the bow, long rail barrel
-  ctx.beginPath(); ctx.moveTo(x + 12, y + 14); ctx.lineTo(x + 14, y + 9.5); ctx.lineTo(x + 22, y + 9); ctx.lineTo(x + 25, y + 14); ctx.fill();
-  ctx.fillStyle = '#5c646c'; ctx.fillRect(x + 1, y + 10.6, 13, 1.2);
-  ctx.fillStyle = '#6c747b'; for (let i = 0; i < 4; i++) ctx.fillRect(x + 27 + i * 3.2, y + 12.8, 2.6, 1.2); // forward Sylver cells
-  ctx.fillStyle = '#b3bac0'; // forward tower, faceted
-  ctx.beginPath(); ctx.moveTo(x + 34, y + 14); ctx.lineTo(x + 40, y - 2); ctx.lineTo(x + 44, y - 10); ctx.lineTo(x + 62, y - 10); ctx.lineTo(x + 67, y - 2); ctx.lineTo(x + 71, y + 14); ctx.fill();
-  ctx.fillStyle = '#a3abb1'; ctx.beginPath(); ctx.moveTo(x + 36, y + 9); ctx.lineTo(x + 70, y + 9); ctx.lineTo(x + 71, y + 14); ctx.lineTo(x + 34, y + 14); ctx.fill();
-  ctx.fillStyle = '#23282d'; ctx.beginPath(); ctx.moveTo(x + 42, y - 4); ctx.lineTo(x + 44, y - 7); ctx.lineTo(x + 52, y - 7); ctx.lineTo(x + 52, y - 4); ctx.fill(); // elevated bridge windows
-  ctx.fillStyle = '#4a525a'; ctx.fillRect(x + 47, y, 11, 8);                       // big UHF radar panel
-  ctx.fillStyle = '#5c646c'; ctx.fillRect(x + 52.2, y, 0.6, 8); ctx.fillRect(x + 47, y + 3.7, 11, 0.6);
-  ctx.fillStyle = '#a3abb1'; ctx.beginPath(); ctx.moveTo(x + 46, y - 10); ctx.lineTo(x + 50.5, y - 24); ctx.lineTo(x + 55.5, y - 24); ctx.lineTo(x + 60, y - 10); ctx.fill(); // pyramid mast
-  ctx.fillStyle = '#4a525a'; ctx.fillRect(x + 50, y - 19, 6, 5);                    // Sea Fire panel
-  ctx.fillStyle = '#8e969d'; ctx.fillRect(x + 50.5, y - 27, 5, 3);                  // 100 kW laser on top
-  ctx.fillStyle = T % 40 < 20 ? '#ff5a3a' : '#a33'; ctx.fillRect(x + 49.4, y - 26.4, 1.2, 1.2);
-  ctx.fillStyle = '#333'; ctx.fillRect(x + 52.4, y - 38, 1.2, 11); ctx.fillRect(x + 49.5, y - 33, 7, 1); // needle mast, yard
-  ctx.beginPath(); ctx.moveTo(x + 53, y - 37); ctx.lineTo(x + 61, y - 34.5); ctx.lineTo(x + 53, y - 32); ctx.fill(); // flag
-  ctx.fillStyle = '#5c646c'; ctx.fillRect(x + 56, y - 9, 5, 3);                     // exhaust
-  ctx.fillStyle = '#8e969d'; ctx.fillRect(x + 71, y + 10, 22, 4);                   // launch zone between the towers: missiles and drones
-  ctx.fillStyle = '#2b3036'; for (let i = 0; i < 4; i++) ctx.fillRect(x + 73 + i * 5, y + 10, 3.4, 1.2);
-  ctx.fillStyle = '#b3bac0'; // aft tower, lower
-  ctx.beginPath(); ctx.moveTo(x + 93, y + 14); ctx.lineTo(x + 96, y); ctx.lineTo(x + 100, y - 5); ctx.lineTo(x + 114, y - 5); ctx.lineTo(x + 119, y + 2); ctx.lineTo(x + 122, y + 14); ctx.fill();
-  ctx.fillStyle = '#a3abb1'; ctx.beginPath(); ctx.moveTo(x + 94, y + 9); ctx.lineTo(x + 121, y + 9); ctx.lineTo(x + 122, y + 14); ctx.lineTo(x + 93, y + 14); ctx.fill();
-  ctx.fillStyle = '#4a525a'; ctx.fillRect(x + 100, y + 1, 9, 7);                   // radar panel
-  ctx.fillStyle = '#a3abb1'; ctx.beginPath(); ctx.moveTo(x + 101, y - 5); ctx.lineTo(x + 104.5, y - 17); ctx.lineTo(x + 108.5, y - 17); ctx.lineTo(x + 112, y - 5); ctx.fill(); // aft mast
-  ctx.fillStyle = '#4a525a'; ctx.fillRect(x + 104, y - 13, 5, 4);
-  ctx.fillStyle = '#d5dade'; ctx.beginPath(); ctx.arc(x + 106.5, y - 19, 2.5, 0, 7); ctx.fill(); // radome
-  ctx.fillStyle = '#5c646c'; ctx.fillRect(x + 102, y - 5, 5, 3);                    // exhaust
-  ctx.fillStyle = '#a9b0b6'; ctx.fillRect(x + 122, y + 8, 7, 6);                    // hangar, lift to the mission bay
-  ctx.fillStyle = '#7d858c'; ctx.fillRect(x + 128, y + 9, 1, 5);
-  ctx.fillStyle = '#eceff1'; ctx.fillRect(x + 130, y + 13, 18, 1);                  // helipad marking
+  fillPoly(x, y, '#7a8187', SCX_P.hull);              // low slab hull above the water: near-vertical bow, flat transom
+  fillPoly(x, y, 'rgba(62,76,90,0.6)', SCX_P.hullLow); // below the waterline, seen through the water
+  ctx.fillStyle = '#9aa1a7'; ctx.fillRect(x + 2, y + 14, 148, 0.8);               // deck edge
+  ctx.fillStyle = '#6c7379'; ctx.fillRect(x + 2, y + 19, 148, 0.5);               // knuckle line
+  ctx.fillStyle = '#2a2e33'; ctx.fillRect(x + 11, y + 23, 4, 3.5);                // hawse opening near the bow
+  ctx.fillStyle = '#6c7379'; ctx.fillRect(x + 82, y + 16.5, 8.5, 2.5);            // side bay door
+  fillPoly(x, y, '#80878d', SCX_P.casemate);                             // raised casemate from the VLS deck to the flight deck
+  fillPoly(x, y, '#8d949a', SCX_P.vls1);                         // forward VLS slabs, angled
+  fillPoly(x, y, '#8d949a', SCX_P.vls2);
+  ctx.fillStyle = '#a4abb1'; ctx.fillRect(x + 34, y + 9.2, 12, 0.5); ctx.fillRect(x + 48.5, y + 8.8, 11, 0.5);
+  ctx.fillStyle = '#4a5157'; ctx.fillRect(x + 46.8, y + 8.8, 0.6, 2.2);
+  ctx.fillStyle = '#2a2e33'; ctx.fillRect(x + 88, y + 10.6, 2.4, 0.6); ctx.fillRect(x + 92, y + 10.6, 2.4, 0.6); // launch zone hatches (missiles, drones)
+  fillPoly(x, y, '#868d93', SCX_P.fwdTower);                     // forward tower
+  fillPoly(x, y, '#9ba2a8', SCX_P.fwdLit);                     // lit bow-facing face
+  ctx.fillStyle = '#23272b'; ctx.fillRect(x + 65.6, y + 2.4, 11.4, 1);            // bridge window band
+  ctx.fillStyle = '#5c6369'; ctx.fillRect(x + 66.8, y + 5.2, 6, 6);               // square radar panel
+  ctx.fillStyle = '#80878d'; ctx.fillRect(x + 67.3, y + 5.7, 5, 5);
+  ctx.fillStyle = '#5c6369'; ctx.fillRect(x + 70.3, y - 1.2, 3.4, 3);             // small panel up top
+  ctx.fillStyle = '#80878d'; ctx.fillRect(x + 70.7, y - 0.8, 2.6, 2.2);
+  ctx.fillStyle = '#3a3f45'; ctx.fillRect(x + 69.5, y - 7.5, 0.4, 4); ctx.fillRect(x + 77.5, y - 6, 0.4, 2.5); ctx.fillRect(x + 73, y - 4.3, 3, 0.8); // antennas
+  fillPoly(x, y, '#868d93', SCX_P.aftTower);                        // aft tower
+  fillPoly(x, y, '#9ba2a8', SCX_P.aftLit);
+  ctx.fillStyle = '#3a3f45'; ctx.fillRect(x + 101.8, y - 3.6, 9.4, 1.1);          // dark roof edge
+  fillPoly(x, y, '#2f3439', SCX_P.stack);                   // pointed stack
+  ctx.fillRect(x + 102.6, y - 9.2, 3.6, 0.6);
+  ctx.fillStyle = '#2a2e33'; for (let i = 0; i < 3; i++) ctx.fillRect(x + 104.6, y - 0.2 + i * 1.3, 2.2, 0.6); // vent slots
+  ctx.fillStyle = '#5c6369'; ctx.fillRect(x + 102, y + 8.4, 4.6, 1.2);            // grille
+  ctx.fillStyle = '#80878d'; for (let i = 0; i < 4; i++) ctx.fillRect(x + 102.6 + i * 1.1, y + 8.4, 0.4, 1.2);
+  ctx.fillStyle = '#8d949a'; ctx.fillRect(x + 119, y + 10.5, 3, 3.5);             // door to the mission bay
+  ctx.fillStyle = '#2a2e33'; ctx.fillRect(x + 119.8, y + 11.4, 1.4, 1.8);
+  ctx.fillStyle = '#5c6369'; ctx.fillRect(x + 122, y + 12.2, 27.5, 0.4);          // flight deck railing
+  for (let px = 122; px < 150; px += 2.5) ctx.fillRect(x + px, y + 12.2, 0.4, 1.8);
 }
 
 function drawASW(s) { // SCX-26 ASW missile: dark body carrying a torpedo, yellow band, motor glow
@@ -2747,7 +2759,7 @@ const ROSTER = [
   { name: 'ANTI-SHIP MISSILE', note: 'Hits surfaced subs: CIWS', e: { x: 0, y: 0, w: 14, h: 4, a: Math.PI }, f: drawASM, bx: -2, by: -4, w: 18, h: 12 },
   { name: 'PIRATE SHIP', m: PIRATE_LEVEL, note: 'Cannon balls sink: dodge', e: { x: 0, y: 0 }, f: drawPirateShip, bx: -14, by: -42, w: 126, h: 78 },
   { name: 'CORSICA FERRY', note: 'Neutral. Dodge its cars', e: { x: 0, y: 0 }, f: drawFerry, bx: -2, by: -40, w: 226, h: 76 },
-  { name: 'SCX-26 CRUISER', m: SCX_LEVEL, note: 'ASW missiles: drop decoys', e: { x: 0, y: 0 }, f: drawSCX, bx: -2, by: -30, w: 154, h: 66 },
+  { name: 'SCX-26 CRUISER', m: SCX_LEVEL, note: 'ASW missiles: drop decoys', e: { x: 0, y: 0 }, f: drawSCX, bx: -2, by: -12, w: 154, h: 48 },
   { name: 'PIRATE', m: PIRATE_LEVEL, note: 'Rum barrel bomb on back', e: { x: 0, y: 0, t: 0, vy: 0, face: -1, bomb: true }, f: drawPirate, bx: -12, by: -8, w: 56, h: 30 },
 ];
 const SHOWCASE = [
