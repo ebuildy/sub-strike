@@ -538,7 +538,7 @@ const NEWS = {
   2: [['D', 'DECOYS ISSUED: lure torpedoes, mines and whales'], ['!', 'NEW THREAT: KAMIKAZE WHALES with bombs'],
       ['!', 'NEW THREAT: COMBAT SWIMMERS from ships and helos'], ['!', 'NEW THREAT: ELECTRIC EELS jam your weapons'],
       ['!', 'NEW THREAT: PIRATE SHIPS: cannons, rum barrel bombs'],
-      ['!', 'NEW THREAT: SCX-26 CRUISER: ASW missiles, flares'],
+      ['!', 'NEW THREAT: SCX-26 CRUISER: ASW missiles, blue laser'],
       ['!', 'WEATHER: STORM FRONT from mid-mission']],
   3: [['E', 'BUBBLE SCREEN ISSUED: blasts close threats away'], ...MOBILE ? [] : [['W', 'AIR DRONE ISSUED: kills drones, rams helos']],
       ['!', 'ENEMY SUBS now deploy decoys'], ['!', 'SCX-26 now fires 2-missile ASW salvos']],
@@ -707,13 +707,13 @@ function spawnBoat(x, pirate = PIRATE_CHANCE) {
 
 // SCX-26 (Naval Group drone-carrier cruiser): replaces the FDI frigate from mission 2. Two superstructures with
 // a launch zone between them: ASW missiles (they fly to the sub, splash and home on it as torpedoes, or on a decoy)
-// and drones go up from there. It fools half of our torpedoes and H-bombs: sonar decoys under water, flares in the air
-const SCX_LEVEL = 2, SCX_SAVE = 0.5, SCX_RANGE = 260, SCX_DUO = 3; // first mission, chance to fool each weapon, reaction range (px), 2-missile salvos from
+// and drones go up from there. Its blue laser burns half of our torpedoes and H-bombs, and our air drone
+const SCX_LEVEL = 2, SCX_SAVE = 0.5, SCX_RANGE = 260, SCX_DUO = 3; // first mission, chance to burn each weapon, laser range (px), 2-missile salvos from
+const SCX_LZ_X = 73.5, SCX_LZ_Y = -5.5, SCX_LZ_AIM = 12, SCX_LZ_BEAM = 10, SCX_LZ_COOL = 20, SCX_LZ_DRONE = 220; // blue laser: emitter, aim and beam steps, rest, range on our drone (px)
 const ASW_V = 2, ASW_TURN = 0.02, ASW_LIFE = 300; // the missile's torpedo once in the water: px/step, rad/step, steps
 function updateSCX(e) {
   const onScreen = e.x > 20 && e.x < W - 60, lx = e.x + 91, ly = e.y + 10; // launch zone between the two towers
   e.y = SURFACE - 24 + Math.sin(T * 0.03) * 2 + (e.sink || 0);
-  if (T % 8 === 0) particles.push({ kind: 'smoke', x: e.x + 104.4, y: e.y - 9, vx: 0.3, vy: -0.6, life: 50, max: 50, size: 4 }); // the aft tower's stack
   if (e.x < W - 120 && e.x > 150 && (e.diverT ??= level >= UNLOCK.swimmers && Math.random() < 0.35 ? rnd(60, 200) : Infinity, --e.diverT <= 0)) { // a swimmer jumps off the deck
     e.diverT = Infinity; spawnDiver(e.x + 12, e.y + 6, 0.9, -2.2);
   }
@@ -733,29 +733,38 @@ function updateSCX(e) {
     if (enemies.filter(d => d.type === 'drone').length < 2) { enemies.push({ type: 'drone', x: lx - 12, y: ly - 14, w: 32, h: 14, hp: 1, pts: 40, fire: 160, vx: 0.4, t: 0, climb: 70 }); sfx.droneOut(lx); }
     e.droneT = Math.max(420, 720 - level * 30) * rnd(0.8, 1.2);
   }
-  // Countermeasures: our torpedo or H-bomb coming at it gets one roll; a yes throws a decoy (water) or flares (air)
-  if (e.cmT > 0) e.cmT--;
-  let threat = null;
-  for (const t of torps) {
-    const gap = e.x - t.x - t.w, ty = t.y + t.h / 2 + Math.tan(t.a) * Math.max(0, gap);
-    if (!t.dead && !t.lure && gap > -20 && gap < SCX_RANGE && ty > e.y && ty < e.y + e.h + 16 && (t.scx ??= Math.random() < SCX_SAVE)) { threat = t; break; }
-  }
-  if (!threat) for (const m of missiles) if (!m.dead && !m.lure && m.target === e && Math.hypot(m.x + 2.5 - e.x - e.w / 2, m.y + 7 - e.y - 20) < SCX_RANGE && (m.scx ??= Math.random() < SCX_SAVE)) { threat = m; break; }
-  if (threat && !(e.cmT > 0) && onScreen) {
-    e.cmT = 20;
-    const wy = threat.y + (threat.h || 14) / 2;
-    if (wy > SURFACE + 2) { // sonar decoy out of the hull, toward the weapon's side
-      const d = { type: 'cm', x: e.x + 40, y: e.y + 30, w: 6, h: 6, vx: -1, vy: 1.8, life: 300 };
-      eShots.push(d); threat.lure = d;
-      noise(0.12, 0.05); tone(2400, 0.1, 'sine', 0.06); setTimeout(() => tone(2400, 0.1, 'sine', 0.06), 110);
-      if (!(flash && flash.danger)) flash = { msg: 'ENEMY DECOY DEPLOYED', t: 50 };
-    } else { // flares fired from the launch zone: the H-bomb goes for the hottest one
-      for (let i = 0; i < 3; i++) {
-        const f = { type: 'flr', x: lx - 3, y: ly - 6, w: 6, h: 6, vx: -1.8 + i * 0.6, vy: -1.3 - i * 0.3, life: 110 };
-        eShots.push(f); if (i === 0) threat.lure = f;
+  // Blue laser on top of the forward tower: our torpedo or H-bomb coming at it gets one roll (50%), and our air drone is
+  // shot on sight. It aims, then a short beam burns the target. The water stops it DRONE_DEPTH px down
+  const ex = e.x + SCX_LZ_X, ey = e.y + SCX_LZ_Y, lzOn = ex > 5 && ex < W - 5; // works once the emitter is on screen
+  if (e.lzCool > 0) e.lzCool--;
+  if (e.lz) {
+    const tg = e.lz.t, gone = tg.dead || (e.lz.drone && tg !== myDrone);
+    if (gone || !lzOn) e.lz = null;
+    else {
+      e.lz.x = tg.x + (e.lz.drone ? 16 : tg.w || 2.5); e.lz.y = tg.y + (e.lz.drone ? 7 : (tg.h || 14) / 2);
+      if (++e.lz.n === SCX_LZ_AIM) { tone(1500, 0.25, 'sawtooth', 0.045, 500); noise(0.15, 0.04); } // beam on
+      if (e.lz.n > SCX_LZ_AIM && T % 2 === 0) particles.push({ kind: 'spark', x: e.lz.x, y: e.lz.y, vx: rnd(-1.5, 1.5), vy: rnd(-1.5, 1.5), life: 10, max: 10, size: rnd(1, 2), color: '#8fdcff' });
+      if (e.lz.n >= SCX_LZ_AIM + SCX_LZ_BEAM) { // burnt
+        if (e.lz.drone) killMyDrone();
+        else {
+          tg.dead = true; boom(e.lz.x, e.lz.y, false);
+          if (!(flash && flash.danger)) flash = { msg: torps.includes(tg) ? 'TORPEDO LASERED' : 'H-BOMB LASERED', t: 50 };
+        }
+        e.lz = null; e.lzCool = SCX_LZ_COOL;
       }
-      noise(0.15, 0.06); tone(900, 0.15, 'sawtooth', 0.04, 300);
-      if (!(flash && flash.danger)) flash = { msg: 'ENEMY FLARES DEPLOYED', t: 50 };
+    }
+  } else if (!(e.lzCool > 0) && lzOn) {
+    const reach = (px, py) => py < SURFACE + DRONE_DEPTH && Math.hypot(px - ex, py - ey) < SCX_RANGE;
+    let tg = null;
+    for (const t of torps) {
+      const gap = e.x - t.x - t.w, ty = t.y + t.h / 2 + Math.tan(t.a) * Math.max(0, gap);
+      if (!t.dead && gap > -20 && gap < SCX_RANGE && ty > e.y && ty < e.y + e.h + 16 && (t.scx ??= Math.random() < SCX_SAVE) && reach(t.x + t.w, t.y + t.h / 2)) { tg = t; break; }
+    }
+    if (!tg) for (const m of missiles) if (!m.dead && m.target === e && reach(m.x + 2.5, m.y + 7) && (m.scx ??= Math.random() < SCX_SAVE)) { tg = m; break; }
+    if (tg) e.lz = { t: tg, n: 0, x: 0, y: 0 };
+    else if (myDrone && Math.hypot(myDrone.x + 16 - ex, myDrone.y + 7 - ey) < SCX_LZ_DRONE) {
+      e.lz = { t: myDrone, n: 0, x: 0, y: 0, drone: true };
+      if (!(flash && flash.danger)) flash = { msg: 'ENEMY LASER LOCK - DRONE TARGETED', t: 50, danger: true };
     }
   }
   if (!e.heliDone) { // a helicopter waits on the aft flight deck
@@ -1541,12 +1550,6 @@ function update() {
       }
       if (s.y < -40) s.dead = true;
     }
-    else if (s.type === 'flr') { // SCX-26 flare: burns bright and falls, our H-bomb goes for it
-      s.vy += 0.03; s.vx *= 0.98; s.x += s.vx - scroll * 0.3; s.y += s.vy;
-      if (T % 2 === 0) particles.push({ kind: 'smoke', x: s.x + 3, y: s.y + 3, vx: rnd(-0.2, 0.2), vy: -0.2, life: 35, max: 35, size: 2, color: '#e8e8e0' });
-      if (Math.random() < 0.4) particles.push({ kind: 'spark', x: s.x + 3, y: s.y + 3, vx: rnd(-1, 1), vy: rnd(-0.5, 1), life: 10, max: 10, size: 1, color: '#fff3b0' });
-      if (--s.life <= 0 || s.y > SURFACE) s.dead = true;
-    }
     else if (s.type === 'brk') { // boss Shkval: supercavitating rocket-torpedo, homes on the sub (or a decoy)
       const cx = s.x + s.w / 2, cy = s.y + s.h / 2;
       if (s.boost > 0) { if (--s.boost === 0) sfx.motor(cx, true); } // ejected, then the rocket lights
@@ -1634,7 +1637,7 @@ function update() {
     }
     if (s.type === 'charge' && s.y + s.h > groundY(camX + s.x)) { s.dead = true; boom(s.x + 5, s.y + 7, false); }
     if (s.type === 'charge' && !s.dead && s.y > SURFACE && proximityFuse(s, s.x + 5, s.y + 7)) continue;
-    if (s.type === 'sam' || s.type === 'atr' || s.type === 'cm' || s.type === 'bcl' || s.type === 'flr') continue; // they only go after our weapons
+    if (s.type === 'sam' || s.type === 'atr' || s.type === 'cm' || s.type === 'bcl') continue; // they only go after our weapons
     if (!s.dead && hit(s, playerBox())) { s.dead = true; damagePlayer(); }
     for (let i = allies - 1; i >= 0; i--) if (!s.dead && hit(s, allyBox(i))) { s.dead = true; allies--; boom(allyBox(i).x + 28, allyBox(i).y + 12); }
     for (const t of torps) if (!s.dead && !t.dead && hit(s, t)) { s.dead = t.dead = true; boom(s.x, s.y, false); score += 5; }
@@ -2296,10 +2299,12 @@ function drawSCX(e) { // Naval Group SCX-26 cruiser facing left, after the offic
   ctx.fillStyle = '#5c6369'; ctx.fillRect(x + 70.3, y - 1.2, 3.4, 3);             // small panel up top
   ctx.fillStyle = '#80878d'; ctx.fillRect(x + 70.7, y - 0.8, 2.6, 2.2);
   ctx.fillStyle = '#3a3f45'; ctx.fillRect(x + 69.5, y - 7.5, 0.4, 4); ctx.fillRect(x + 77.5, y - 6, 0.4, 2.5); ctx.fillRect(x + 73, y - 4.3, 3, 0.8); // antennas
+  ctx.fillStyle = '#5c6369'; ctx.fillRect(x + 71.6, y - 5.4, 3.8, 1.9);          // blue laser turret on the forward tower
+  ctx.fillStyle = e.lz && e.lz.n >= SCX_LZ_AIM ? '#e0f4ff' : T % 40 < 20 ? '#38a8ff' : '#1d5f99'; ctx.fillRect(x + 71, y - 5, 1, 1);
   fillPoly(x, y, '#868d93', SCX_P.aftTower);                        // aft tower
   fillPoly(x, y, '#9ba2a8', SCX_P.aftLit);
   ctx.fillStyle = '#3a3f45'; ctx.fillRect(x + 101.8, y - 3.6, 9.4, 1.1);          // dark roof edge
-  fillPoly(x, y, '#2f3439', SCX_P.stack);                   // pointed stack
+  fillPoly(x, y, '#2f3439', SCX_P.stack);                   // pointed mast (no funnel: no smoke)
   ctx.fillRect(x + 102.6, y - 9.2, 3.6, 0.6);
   ctx.fillStyle = '#2a2e33'; for (let i = 0; i < 3; i++) ctx.fillRect(x + 104.6, y - 0.2 + i * 1.3, 2.2, 0.6); // vent slots
   ctx.fillStyle = '#5c6369'; ctx.fillRect(x + 102, y + 8.4, 4.6, 1.2);            // grille
@@ -2310,6 +2315,14 @@ function drawSCX(e) { // Naval Group SCX-26 cruiser facing left, after the offic
   for (let px = 122; px < 150; px += 2.5) ctx.fillRect(x + px, y + 12.2, 0.4, 1.8);
 }
 
+function drawSCXLaser(e) { // blue laser: dotted aim line, then the beam
+  const l = e.lz, x1 = e.x + SCX_LZ_X - 2.5, y1 = e.y + SCX_LZ_Y + 0.5;
+  if (l.n < SCX_LZ_AIM) {
+    ctx.strokeStyle = 'rgba(90,190,255,0.7)'; ctx.lineWidth = 0.8; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(l.x, l.y); ctx.stroke(); ctx.setLineDash([]);
+  } else drawLaser({ x1, y1, x2: l.x, y2: l.y, hit: true, blue: true });
+}
+
 function drawASW(s) { // SCX-26 ASW missile: dark body carrying a torpedo, yellow band, motor glow
   ctx.save(); ctx.translate(s.x + s.w / 2, s.y + s.h / 2); ctx.rotate(s.a);
   ctx.fillStyle = '#7d858d'; ctx.beginPath(); ctx.moveTo(-3, -1.2); ctx.lineTo(-5, -3.2); ctx.lineTo(-6, -1.2); ctx.moveTo(-3, 1.2); ctx.lineTo(-5, 3.2); ctx.lineTo(-6, 1.2); ctx.fill(); // fins
@@ -2318,12 +2331,6 @@ function drawASW(s) { // SCX-26 ASW missile: dark body carrying a torpedo, yello
   ctx.fillStyle = '#c62828'; ctx.beginPath(); ctx.moveTo(3, -1.3); ctx.quadraticCurveTo(6, -1, 6, 0); ctx.quadraticCurveTo(6, 1, 3, 1.3); ctx.fill(); // nose
   { ctx.fillStyle = T % 4 < 2 ? '#fff6c8' : '#ffd23f'; ctx.beginPath(); ctx.arc(-6.5, 0, 1.3, 0, 7); ctx.fill(); } // motor
   ctx.restore();
-}
-
-function drawFlare(s) { // SCX-26 decoy flare: white-hot core in a soft glow
-  const fl = 0.8 + Math.random() * 0.4;
-  ctx.fillStyle = 'rgba(255,220,140,0.3)'; ctx.beginPath(); ctx.arc(s.x + 3, s.y + 3, 6.5 * fl, 0, 7); ctx.fill();
-  ctx.fillStyle = '#fff8e0'; ctx.beginPath(); ctx.arc(s.x + 3, s.y + 3, 2.3, 0, 7); ctx.fill();
 }
 
 function drawPirateShip(e) { // three-masted pirate galleon facing left: wooden hull, gun ports, square sails, Jolly Roger
@@ -2873,12 +2880,12 @@ function shopSelect() {
 function drawLaser(l) {
   const j = () => rnd(-1.2, 1.2), mx = (l.x1 + l.x2) / 2 + j(), my = (l.y1 + l.y2) / 2 + j(); // flickering, slightly electric
   ctx.lineCap = 'round';
-  for (const [w, col] of l.green ? [[7, 'rgba(0,255,80,0.25)'], [3, '#20ff60'], [1, '#e0ffe8']] : [[7, 'rgba(255,0,0,0.25)'], [3, '#ff2020'], [1, '#ffe0e0']]) {
+  for (const [w, col] of l.blue ? [[7, 'rgba(40,160,255,0.3)'], [3, '#38a8ff'], [1, '#e0f4ff']] : l.green ? [[7, 'rgba(0,255,80,0.25)'], [3, '#20ff60'], [1, '#e0ffe8']] : [[7, 'rgba(255,0,0,0.25)'], [3, '#ff2020'], [1, '#ffe0e0']]) {
     ctx.strokeStyle = col; ctx.lineWidth = w;
     ctx.beginPath(); ctx.moveTo(l.x1, l.y1); ctx.lineTo(mx, my); ctx.lineTo(l.x2, l.y2); ctx.stroke();
   }
-  ctx.fillStyle = l.green ? 'rgba(80,255,120,0.5)' : 'rgba(255,80,80,0.5)'; ctx.beginPath(); ctx.arc(l.x1, l.y1, 3 + Math.random() * 2, 0, 7); ctx.fill();
-  if (l.hit) { ctx.fillStyle = 'rgba(255,220,220,0.8)'; ctx.beginPath(); ctx.arc(l.x2, l.y2, 4 + Math.random() * 3, 0, 7); ctx.fill(); }
+  ctx.fillStyle = l.blue ? 'rgba(90,190,255,0.5)' : l.green ? 'rgba(80,255,120,0.5)' : 'rgba(255,80,80,0.5)'; ctx.beginPath(); ctx.arc(l.x1, l.y1, 3 + Math.random() * 2, 0, 7); ctx.fill();
+  if (l.hit) { ctx.fillStyle = l.blue ? 'rgba(220,240,255,0.85)' : 'rgba(255,220,220,0.8)'; ctx.beginPath(); ctx.arc(l.x2, l.y2, 4 + Math.random() * 3, 0, 7); ctx.fill(); }
 }
 
 function draw() {
@@ -2902,7 +2909,8 @@ function draw() {
   }
   if (ferry) drawEnemy(ferry);
   for (const e of enemies) drawEnemy(e); // not forEach: it would pass the index as the rotation
-  eShots.forEach(s => s.type === 'torp' ? drawTorpedo(s, true) : s.type === 'sam' || s.type === 'atr' ? drawSAM(s) : s.type === 'cm' ? drawCM(s) : s.type === 'asm' ? drawASM(s) : s.type === 'asw' ? drawASW(s) : s.type === 'flr' ? drawFlare(s) : s.type === 'brk' ? drawShkval(s) : s.type === 'bcl' ? drawBubbleWall(s) : s.type === 'ball' ? (s.car ? drawCar(s) : drawBall(s)) : drawCharge(s));
+  for (const e of enemies) if (e.lz) drawSCXLaser(e);
+  eShots.forEach(s => s.type === 'torp' ? drawTorpedo(s, true) : s.type === 'sam' || s.type === 'atr' ? drawSAM(s) : s.type === 'cm' ? drawCM(s) : s.type === 'asm' ? drawASM(s) : s.type === 'asw' ? drawASW(s) : s.type === 'brk' ? drawShkval(s) : s.type === 'bcl' ? drawBubbleWall(s) : s.type === 'ball' ? (s.car ? drawCar(s) : drawBall(s)) : drawCharge(s));
   decoys.forEach(d => { ctx.globalAlpha = Math.min(1, d.life / 40); drawDecoy(d); ctx.globalAlpha = 1; });
   torps.forEach(t => drawTorpedo(t, false));
   missiles.forEach(drawHBomb);
