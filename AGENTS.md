@@ -72,9 +72,9 @@ kamikaze belugas.
      falls.
 5. **Update:** `update()` is the whole simulation for one step.
 6. **Draw:** `draw()` plus one `drawX()` per object:
-   - Ships and weapons: `drawShip`, `drawCIWS`, `drawTorpedo`, `drawCharge`, `drawLaser`, `drawHBomb`, `drawRampart`, `drawASM`, `drawSAM`, `drawShkval` and `drawBubbleWall` (boss).
+   - Ships and weapons: `drawShip`, `drawCIWS`, `drawTorpedo`, `drawCharge`, `drawLaser`, `drawHBomb`, `drawRampart`, `drawASM`, `drawSAM`, `drawASW`, `drawSCXLaser`, `drawShkval` and `drawBubbleWall` (boss).
    - Sea enemies: `drawMine`, `drawOcto` (drawn at `OCTO_K = 0.5`, owner: 2x smaller; box 17x15), `drawBeluga`, `drawDiver`, `drawEel` and `drawBoss`.
-   - Surface and air enemies: `drawBoat`, `drawHeli` and `drawDrone`.
+   - Surface and air enemies: `drawBoat`, `drawSCX`, `drawHeli` and `drawDrone`.
    - Scenery: `drawRock`.
    - `drawEnemy` dispatches by `e.type`.
 7. **Loop**
@@ -86,7 +86,7 @@ kamikaze belugas.
 ## Conventions
 
 - **Entities are plain objects in arrays:** `enemies`, `torps` (player torpedoes), `bullets` (CIWS rounds), `eShots` (enemy
-  `torp`, `charge`, `asm`, `sam`, `atr`, `cm`, and the boss's `brk` and `bcl`), `missiles`, `pickups` and `particles`.
+  `torp`, `charge`, `asm`, `sam`, `atr`, `cm`, the SCX-26's `asw`, and the boss's `brk` and `bcl`), `missiles`, `pickups` and `particles`.
 - **Removing an entity:** set `.dead = true`. The arrays are filtered once per step.
 - **Enemies** have `{type, x, y, w, h, hp, pts}` plus fields for their own type.
   - Each step, the shared enemy loop moves every enemy left by `scroll` plus `e.vx`.
@@ -174,7 +174,7 @@ kamikaze belugas.
     threat cards (`ROSTER`: mine, octopus, eel, whale, swimmer, helo, drone, anti-ship missile, each drawn with the
     game's own `drawX`, scaled into a clipped card, with a one-line tip and "FROM MISSION n" in red when locked
     early), then the controls and ENTER / ARMORY / coins. **Add any new enemy to `ROSTER` (2D) or `SHOWCASE` (3D).**
-    The grid is 3 rows of 4 (10 cards); the bosses are not on it, they are announced by the mission 4 and 5 briefings.
+    The grid is 3 rows of 4 (12 cards, full); the bosses are not on it, they are announced by the mission 4 and 5 briefings.
   - **Tiny 3D engine** (no library): meshes are face lists `{ p: [[x,y,z]...], c: [r,g,b] }` (x = length, y = up),
     built once into `MESH` by `subMesh(hull, fins)` (hull of revolution, sail, planes, X rudders) and `frigateMesh()`
     (lofted hull, superstructure, pyramid mast, hangar, radome, Rampart) with `box3`. `draw3D(mesh, cx, cy, scale,
@@ -318,7 +318,7 @@ kamikaze belugas.
   extra life.
 - **Enemy boat** is a gray stealth frigate modeled on Naval Group's FDI (inverted bow, pyramid mast,
   radome, hangar, helipad), facing left, `w: 110`. Smoke comes from the exhaust at (x + 61, y).
-  - One frigate always opens each level (`startLevel`); after that `boatChance = 0.25`, max one at a time.
+  - One warship (frigate, or the SCX-26 from mission 2) or pirate ship always opens each level (`startLevel`); after that `boatChance = 0.25`, max one at a time.
   - **Rampart turret** (Naval Group's modular launcher) replaces the old 76 mm gun on the bow. `drawRampart` draws a
     gray block of 4 modules (seams, tube mouths on the front face, electro-optical sensor with a blinking red
     designator) on a pedestal at (x + 14, y + 11). It turns 0.1 rad/step (`e.rpA`, upper half only, level toward
@@ -348,6 +348,41 @@ kamikaze belugas.
   - **Helicopter:** each frigate spawns a heli parked on its flight deck (`parked`, if no other heli is
     around). It lifts off 1 to 3 s after the frigate is on screen (`lift`), then flies as a normal heli.
     It takes off at once if the frigate is sunk.
+  - **Since the SCX-26, the FDI frigate only sails in mission 1.**
+- **SCX-26 cruiser (issue #2), from mission 2 (`SCX_LEVEL`):** Naval Group's drone-carrier cruiser concept replaces the
+  FDI frigate: every non-pirate warship from `spawnBoat` is a `boat` with `scx: true` (`w: 150`, hp 4, 80 points), so the
+  lock, H-bomb, torpedo box, wreck and storm heave work as for the frigate. Behavior in `updateSCX(e)`, art in `drawSCX`:
+  copied (mirrored) from Naval Group's render (owner: "copy the design from the photo"). A low slab hull: only y + 14 to
+  y + 24 is above the water, and the part below is tinted to look seen through the water. It has a near-vertical bow
+  with a hawse opening, a flat transom and a raised casemate with two angled VLS slabs forward. Two plain
+  truncated-pyramid towers ("camel humps"): the forward one at x 61-87 has a window band and a square radar panel; the
+  aft one at x 96-119 has a pointed dark mast, vent slots and a grille. **The towers are not funnels (owner): no smoke.** The launch zone
+  dips between them at (x + 91, y + 10), and the flight deck aft has railings. The outlines are constants in `SCX_P`,
+  drawn with `fillPoly`, so there are no per-frame allocations. A small blue laser turret sits on top of the forward tower. No gun turret, flag mast or Rampart. It keeps depth charges, swimmers and a parked heli
+  (`b.x + b.w - 34`, the same rule for both ships). Drones climb out of the launch zone (same timing as the Rampart's).
+  It shows "SPLASH ONE SCX-26 CRUISER" when sunk. On the welcome `ROSTER`, which is now 3 full rows of 4.
+  - **ASW missiles (`asw` eShot, `drawASW`):** first after 1.5 to 2.5 s on screen, then every `max(240, 420 - 20 × level)`
+    steps; from mission 3 (`SCX_DUO`) a 2-missile salvo ("ASW MISSILE LAUNCH" / "ASW SALVO - 2 MISSILES INBOUND", danger).
+    They go up out of the launch zone (boost 6, and 14 for the second), then turn 0.06 rad/step (up to 3.2 px/step) onto the
+    sub, or onto a player decoy near it (`decoyNear`). The CIWS shoots them like an anti-ship missile (`ASM_HITS`); a
+    surfaced sub can be hit by one directly. In the water a missile drops a **homing torpedo** (`torp` with `homing: true`,
+    `ASW_V = 2`, `ASW_TURN = 0.02`, `ASW_LIFE = 300` steps). It homes on the sub and goes for decoys like any enemy torpedo.
+    The laser and the bubble screen destroy it, and torpedoes do too. 1 life on a hit. The threat warning beeps for the
+    missile in flight (pre-marked `warned`: the launch call is its message), then "LOCKED TARGET - TORPEDO INBOUND".
+    Tested at mission 2 over 30 s ×4: still sub 17/21 hit, sub breaking away vertically 1/20, decoys every 5 s 0/5. With
+    `ASW_TURN = 0.03` the same break-away was still hit 16/20.
+  - **Blue laser (owner: instead of decoys and flares), `e.lz`, `drawSCXLaser`:** the emitter is on top of the forward
+    tower at (x + `SCX_LZ_X`, y + `SCX_LZ_Y`). It works once the emitter is on screen, within `SCX_RANGE = 260` px, and
+    reaches `DRONE_DEPTH` (70 px) under the surface.
+    - Each torpedo whose course hits the ship and each guided H-bomb aimed at it get one roll (`t.scx` / `m.scx`,
+      `SCX_SAVE = 0.5`). A yes is burnt: a dotted blue aim line for `SCX_LZ_AIM = 12` steps, then a blue beam (`drawLaser`
+      with `blue`) for `SCX_LZ_BEAM = 10`. Shown as "TORPEDO LASERED" / "H-BOMB LASERED" (info). The ship then rests
+      `SCX_LZ_COOL = 20` steps.
+    - Our air drone is shot on sight within `SCX_LZ_DRONE = 220` px: "ENEMY LASER LOCK - DRONE TARGETED" (danger), then
+      `killMyDrone()` ("DRONE DOWN"). Weapons come first.
+    - It never hits the sub.
+    - Tested: 27/60 torpedoes lasered; guided H-bombs from deep 18/30, from a shallow sub 10/30; in a normal approach
+      (fired once locked) 23/40 and 20/40. Our drone held in range dies in 23 steps, 10/10.
 - **Pirate ship (owner), from mission 2 (`PIRATE_LEVEL`):** `spawnBoat(x)` makes every surface ship (the opener in
   `startLevel` too) a pirate ship with `PIRATE_CHANCE = 0.4` (0% at mission 1). `spawnEnemy` passes `PIRATE_CHANCE / (1 - FERRY_CHANCE)` so the ferry roll doesn't lower that share. It is a
   `boat` with `pirate: true`, so the lock, H-bomb, torpedo box, wreck and storm heave work as for the frigate, but it
