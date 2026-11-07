@@ -397,7 +397,8 @@ let myDrone = null, droneRocket = null, droneAmmo = 1; // our air drone (W): roc
 let bullets = [], laser = null, decoys = [], decoyCool = 0, bubbleAmmo = 5, bubbleCool = 0, missiles = [], hbombs = 8, airTimer = 0, whiteFlash = 0;
 let dashMsg = '', dashA = 0, dashRed = false; // dashRed: danger message (red), else info (orange) // bottom dashboard: last message and its show/hide amount (0..1)
 const RETRIES = 3; // lost subs per game: each one restarts the failed mission, then it's a new game
-let retries = RETRIES, lvlSave, shopFrom = 'title'; // lvlSave: score/kills/allies at mission start, restored on a retry
+let retries = RETRIES, lvlSave, bossSave = null, shopFrom = 'title'; // lvlSave: score/kills/allies at mission start, restored on a retry
+// bossSave: the same, taken when the boss comes in; a retry then restarts just before the boss
 // Weather: a storm (dark clouds, rain, lightning) from the middle of mission 2 to the middle of mission 3,
 // a heavy storm (more rain and lightning, big waves, ships rolling) from the middle of mission 4 to the middle of mission 5
 let storm = 0, stormLvl = 0, lightning = 0, boltX = 0; // storm: 0 clear, 1 storm, 2 heavy storm, eased; lightning: flash 0..1
@@ -427,8 +428,13 @@ function newPlayer() { player = { x: 80, y: H / 2, vx: 0, vy: 0, cool: 0, inv: 0
 
 // Sub lost: restart the failed mission with a fresh sub and the score it started with
 function retryLevel() {
-  ({ score, kills, allies } = lvlSave); lives = ship().lives;
+  const cp = bossSave; // lost against the boss: back to the checkpoint just before it
+  ({ score, kills, allies } = cp || lvlSave); lives = ship().lives;
   newPlayer(); startLevel();
+  if (!cp) return;
+  bossSave = cp; dist = levelLen; enemies = []; ferry = null; heartsLeft = 0; belugaLeft = 0; // the boss comes in on the next step
+  storm = stormLvl = stormTarget();
+  flash = { msg: 'MISSION ' + level + ' - BOSS CHECKPOINT', t: 120 };
 }
 
 // Each level: longer, faster scrolling, more enemies that shoot more
@@ -447,7 +453,7 @@ function startLevel() {
   heartsLeft = level >= LIFE_LEVEL ? LIFE_DROPS : 0; nextHeart = levelLen * 0.3; // life pickups, at 30% and 65% of the mission
   belugaLeft = level < UNLOCK.swimmers ? 0 : MOBILE ? level - 1 : level * 2 - 3; belugaGap = (levelLen - 1000) / belugaLeft; nextBeluga = 300 + belugaGap * 0.4;
   spawnBoat(W + 40); // a warship (frigate, SCX-26 from mission 2) or a pirate ship opens every level
-  lvlSave = { score, kills, allies };
+  lvlSave = { score, kills, allies }; bossSave = null;
   storm = stormLvl = stormTarget(); lightning = 0; // missions 3 and 5 start in the storm
 }
 
@@ -814,6 +820,7 @@ let ferry = null; // the neutral Corsica ferry, not in enemies: no weapon touche
 function spawnBoss() {
   const c = BOSSES[level];
   boss = { type: 'boss', ...c, max: c.hp, swimT: 200, x: W + 20, y: H / 2 - 20, w: 180, h: 28, pts: c.hp * 50, vx: 0, mvx: 0, mvy: 0, gx: W - 230, gy: H / 2 - 20, wp: 200, fire: 150, lzCool: 90, cmT: 0 };
+  bossSave = { score, kills, allies }; // checkpoint: a sub lost now restarts here
   enemies.push(boss); bossStep = 0; musicTimer = 0; // the theme starts on its first beat
   flash = { msg: c.name + '-CLASS SUB INBOUND - SINK IT', t: 150, danger: true };
   tone(55, 2.5, 'sawtooth', 0.08, 42); setTimeout(() => tone(55, 2, 'sawtooth', 0.06, 42), 900); // deep hull groan
@@ -3044,7 +3051,7 @@ function draw() {
       text('GAME OVER - NO LIVES REMAINING', H / 2 - 15, 36, '#ff6b6b');
       text('FINAL SCORE ' + score + ' - MISSION ' + level, H / 2 + 20, 20, '#ffd700');
     }
-    const act = retries > 0 ? 'retry mission ' + level : 'new game';
+    const act = retries > 0 ? (bossSave ? 'retry boss fight' : 'retry mission ' + level) : 'new game';
     if (MOBILE) { text('TAP: ' + act, H / 2 + 58, 18, '#7f7', W / 2 - 60); touchBtn(ARMORY_OVER, 'ARMORY'); }
     else text('ENTER: ' + act + '    S: armory', H / 2 + 58, 18);
   }

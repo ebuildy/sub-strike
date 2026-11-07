@@ -155,6 +155,11 @@ kamikaze belugas.
     full hearts and the score/kills/allies it started with (`lvlSave`, taken at the end of `startLevel`). With none left:
     "GAME OVER - NO LIVES REMAINING", ENTER starts a new game (mission 1, or mission 2 once trained, see below). These lives are **only shown on the lost
     screen**, never on the HUD. The armory opened from the lost screen returns to it (`shopFrom`).
+    - **Boss checkpoint (owner):** `spawnBoss` takes `bossSave` (score/kills/allies). A sub lost against the boss
+      restarts **just before the boss**, not at the mission start: `retryLevel` runs `startLevel` (fresh weapons), then sets
+      `dist = levelLen`, clears enemies, ferry, life crates and belugas, so the boss comes in on the next step
+      ("MISSION n - BOSS CHECKPOINT"; the lost screen says "retry boss fight"). `startLevel` clears `bossSave`. Tested at
+      mission 4: lost before the boss -> dist 0; lost in the fight -> dist = levelLen, Typhoon back at full hp, retries 3 -> 1.
 
 - **Controls** (the owner uses an AZERTY keyboard; keep the action keys together under the left hand)
   - Action keys are read by physical position (`e.code`, `keys.KeyF`, `keys.Space`), so they are the
