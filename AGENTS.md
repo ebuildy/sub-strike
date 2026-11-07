@@ -175,6 +175,9 @@ kamikaze belugas.
     arms it ("CONFIRM?" for 3 s, `clearArm`), the second calls `clearData()`: removes every `si_*` key (not
     `localStorage.clear()`: the ebuildy.github.io origin is shared with other pages), resets coins, ships and `trained`,
     and goes back to the title screen.
+  - **Full screen (desktop, owner):** a green FULL SCREEN / EXIT FULL SCREEN button top right of the pause screen
+    (`FULL_BTN`, mouse click) and **Ctrl+Enter on any screen** call `toggleFullscreen()`. `:fullscreen canvas` drops the
+    border and fills the screen at 16:9. Ctrl+Enter returns before the other Enter handlers, so it never deploys or resumes.
   - **Welcome screen (`drawHelp`) is full-canvas** "THREAT RECOGNITION // CLASSIFIED": a dark veil with a faint
     sonar grid, the title, then **3D** models of our sub, the enemy sub and the frigate (`SHOWCASE`), then 8 **2D**
     threat cards (`ROSTER`: mine, octopus, eel, whale, swimmer, helo, drone, anti-ship missile, each drawn with the
@@ -233,7 +236,7 @@ kamikaze belugas.
     goes off in the sky it hurts nobody.
 - **Enemy sub countermeasures, from level 3 (`SUB_CM_LEVEL`):** each player torpedo whose course hits an enemy sub
   within `SUB_CM_RANGE = 220` px, and each guided H-bomb aimed at it under water, gets one random roll (`t.cm` /
-  `m.cm`, `SUB_CM_SAVE = 0.5`). On a yes the sub throws a red decoy (`cm` eShot, `drawCM`, double ping,
+  `m.cm`, `SUB_CM_SAVE = 0.5`). On a yes the sub throws a decoy flare (`cm` eShot, gunmetal with yellow bands, `drawCM`, double ping,
   "ENEMY DECOY DEPLOYED", one every 20 steps). It drifts and pings for 5 s; the weapon gets `lure` and turns onto it
   (torpedo 0.07 rad/step, H-bomb as usual) and blows up there (the H-bomb's megaBoom kills nobody). Tested at
   level 3: 26/60 torpedoes and 16/30 H-bombs decoyed; level 2: 0/60.
@@ -291,6 +294,11 @@ kamikaze belugas.
   - **The fuse:** a lured threat ignores the sub for its fuse, so it arms and explodes only on the
     decoy. Its blast still hurts the sub if the sub is within 55 px.
   - **Timing:** thrown less than about 1 s before a beluga arrives, the decoys are too late.
+  - **Art and sound (owner: like a distress flare, not a missile):** `drawDecoy` is a red tube with white bands and a
+    burning head (white-hot core, red flame, flickering glow from the cached `GR.flare`). It hangs upright and sways,
+    throwing sparks and a bubble trail. Fired with `sfx.decoy` (two pops, burning hiss and crackle); it sends out orange
+    `sonar` rings and `sfx.decoyPing` every 30/60 steps. In its last 40 steps it burns out, tips over and sinks (gameplay unchanged).
+    Enemy decoys (`cm`, enemy subs and bosses) use the same flare through `drawCM` -> `drawDecoy(s, true)`: gunmetal tube, yellow bands.
 - **Bubble screen (E), `bubbleBurst()`:** defense only, `BUBBLE_AMMO = 5` per level, `BUBBLE_COOL = 45` steps
   between bursts, works while jammed. A burst of 90 bubbles and two rings, and `sfx.bubbles`.
   - Everything under water within `BUBBLE_RANGE = 120` px of the sub center is pushed away (`e.blow`, `e.bx/e.by`,

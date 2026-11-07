@@ -27,6 +27,7 @@
      Sky ends at y=74/450 (16.4%), water goes from #3fb6e0 to #062a4f. */
   canvas { background: linear-gradient(to bottom, #6ec6ff 0%, #d8f3ff 16.4%, #3fb6e0 16.45%, #0f6aa0 49.8%, #062a4f 100%); border: 3px solid #e6c88a; border-radius: 8px; width: min(96vw, calc(94vh * 16 / 9)); height: auto; }
   /* Touch devices: full screen, no border, no page scroll or zoom; portrait asks to rotate */
+  :fullscreen canvas { border: 0; border-radius: 0; width: min(100vw, calc(100vh * 16 / 9)); } /* desktop full screen (Ctrl+Enter) */
   body.mobile { position: fixed; inset: 0; overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
   body.mobile canvas { border: 0; border-radius: 0; width: min(100vw, calc(100vh * 16 / 9)); width: min(100vw, calc(100dvh * 16 / 9)); touch-action: none; }
   #rotate { display: none; position: fixed; inset: 0; background: #021428; color: #ffa31a; font: bold 22px "Trebuchet MS", Verdana, sans-serif; text-align: center; align-items: center; justify-content: center; flex-direction: column; z-index: 9; }
@@ -164,6 +165,22 @@ const sfx = {
     os(o, t, 0.4, 'sine', 90, 35, 0.4);
     nz(o, t + 0.05, 1.6, 0.08, 'bandpass', 900, 2600, 1.2, 0.1);
     bubbles(o, t + 0.05, 45, 1.6, 0.05);
+  },
+  decoy(x) { // two flares fired: a pop each, then the ignition hiss and crackle, bubbles
+    if (!ac) return; const t = ac.currentTime, o = sfxOut(x, 0.45, 1.8);
+    for (const d of [0, 0.11]) {
+      os(o, t + d, 0.15, 'sine', 180, 60, 0.28, 0.002);
+      nz(o, t + d, 0.2, 0.18, 'lowpass', 2600, 400, 0.7, 0.002);
+    }
+    nz(o, t + 0.12, 1.0, 0.07, 'bandpass', 2400, 1400, 0.9, 0.05); // burning hiss
+    crackle(o, t + 0.12, 0.9, 14, 0.05, 0.6);
+    bubbles(o, t + 0.05, 10, 0.6, 0.05);
+  },
+  decoyPing(x) { // acoustic lure: a short swept chirp, with the flare's fizz
+    if (!ac) return; const t = ac.currentTime, o = sfxOut(x, 0.6, 0.8);
+    os(o, t, 0.09, 'sine', 3000, 2100, 0.025, 0.005);
+    os(o, t + 0.1, 0.09, 'sine', 3000, 2100, 0.015, 0.005);
+    crackle(o, t, 0.3, 4, 0.02, 0.6);
   },
   launch(x) { // H-bomb ejected from the tube by a gas generator: hard thump, gas blast, hiss, bubbles
     if (!ac) return; const t = ac.currentTime, o = sfxOut(x, 0.5, 2);
@@ -557,11 +574,15 @@ const NEWS = {
 const BRIEF_TIME = 300; // 5 s
 let briefT = 0;
 
-function throwDecoys() {
+function throwDecoys() { // flare-style acoustic decoys
   if (locked('decoys') || decoyCool > 0) return;
   decoyCool = DECOY_COOL;
-  for (const dir of [-1, 1]) decoys.push({ x: player.x + 40, y: player.y + 22, vx: -0.8, vy: dir * 4, life: DECOY_LIFE });
-  tone(1800, 0.12, 'sine', 0.08); setTimeout(() => tone(1800, 0.12, 'sine', 0.08), 120);
+  for (const dir of [-1, 1]) { // fired from the hull launcher abaft the sail, one up, one down, gas puff
+    const x = player.x + 40, y = player.y + 22;
+    decoys.push({ x, y, vx: -0.8, vy: dir * 4, life: DECOY_LIFE, a: 0, ph: Math.random() * 6 });
+    for (let i = 0; i < 6; i++) particles.push({ kind: 'bubble', x: x + rnd(-3, 3), y: y + dir * rnd(2, 8), vx: rnd(-0.4, 0.4), vy: -rnd(0.3, 1), life: 40, max: 40, size: rnd(1, 2.4) });
+  }
+  sfx.decoy(player.x + 40);
 }
 function decoyNear(x, y, range = DECOY_RANGE) { // nearest live decoy within range, or null
   let best = null, bd = range;
@@ -1136,10 +1157,16 @@ function update() {
 
   // Decoys: thrown up/down, slow down, drift back with the current, ping
   for (const d of decoys) {
+    if (d.life < 40) d.vy += 0.02; // burnt out: goes dark and sinks
     d.x += d.vx - scroll * 0.3; d.y += d.vy; d.vx *= 0.97; d.vy *= 0.955; d.life--;
     d.y = Math.max(SURFACE + 6, Math.min(groundY(camX + d.x) - 6, d.y));
-    if (d.life % 30 === 0) { particles.push({ kind: 'ring', x: d.x, y: d.y, life: 20, max: 20, r: 30 }); if (d.life % 60 === 0) tone(2200, 0.05, 'sine', 0.03); }
-    if (T % 6 === 0) particles.push({ kind: 'bubble', x: d.x, y: d.y, vx: 0, vy: -0.5, life: 30, max: 30, size: rnd(0.8, 1.6) });
+    d.a = Math.sin(T * 0.06 + d.ph) * 0.25 + (d.life < 40 ? (40 - d.life) * 0.03 : 0); // hangs upright and sways; tips over when spent
+    if (d.life >= 40) {
+      if (d.life % 30 === 0) { particles.push({ kind: 'sonar', x: d.x, y: d.y, life: 26, max: 26, r: 34 }); if (d.life % 60 === 0) sfx.decoyPing(d.x); }
+      const hx = d.x + Math.sin(d.a) * 5, hy = d.y - Math.cos(d.a) * 5; // burning head
+      if (T % 3 === 0) particles.push({ kind: 'spark', x: hx, y: hy, vx: rnd(-1.2, 1.2), vy: rnd(-1.6, 0.2), life: 10, max: 10 });
+      if (T % 2 === 0) particles.push({ kind: 'bubble', x: hx + rnd(-1, 1), y: hy, vx: rnd(-0.2, 0.2), vy: -rnd(0.4, 0.9), life: 40, max: 40, size: rnd(0.8, 1.8) });
+    }
   }
   decoys = decoys.filter(d => d.life > 0 && d.x > -20);
 
@@ -1593,12 +1620,19 @@ function update() {
       for (const m of missiles) if (!m.dead && Math.hypot(m.x + 2.5 - s.x, m.y + 7 - s.y) < s.r) { m.dead = true; megaBoom(m.x + 2.5, m.y + 7); flash = { msg: 'H-BOMB DEFEATED', t: 60 }; }
       if (--s.life <= 0) s.dead = true;
     }
-    else if (s.type === 'cm') { // enemy sub decoy: thrown out, slows down, drifts and pings
+    else if (s.type === 'cm') { // enemy sub decoy (flare): thrown out, slows down, drifts, burns and pings
+      if (s.life < 40) s.vy += 0.02; // burnt out: goes dark and sinks
       s.x += s.vx - scroll * 0.3; s.y += s.vy; s.vx *= 0.97; s.vy *= 0.95;
       s.y = Math.max(SURFACE + 6, Math.min(groundY(camX + s.x) - 8, s.y));
       if (--s.life <= 0) s.dead = true;
-      if (s.life % 30 === 0) particles.push({ kind: 'ring', x: s.x + 3, y: s.y + 3, life: 20, max: 20, r: 24 });
-      if (T % 6 === 0) particles.push({ kind: 'bubble', x: s.x + 3, y: s.y, vx: 0, vy: -0.5, life: 30, max: 30, size: rnd(0.8, 1.6) });
+      if (s.ph == null) s.ph = Math.random() * 6;
+      s.a = Math.sin(T * 0.06 + s.ph) * 0.25 + (s.life < 40 ? (40 - s.life) * 0.03 : 0); // hangs upright and sways, tips over when spent
+      if (s.life >= 40) {
+        const hx = s.x + 3 + Math.sin(s.a) * 5, hy = s.y + 3 - Math.cos(s.a) * 5; // burning head
+        if (s.life % 30 === 0) particles.push({ kind: 'sonar', x: s.x + 3, y: s.y + 3, life: 26, max: 26, r: 30 });
+        if (T % 3 === 0) particles.push({ kind: 'spark', x: hx, y: hy, vx: rnd(-1.2, 1.2), vy: rnd(-1.6, 0.2), life: 10, max: 10 });
+        if (T % 2 === 0) particles.push({ kind: 'bubble', x: hx + rnd(-1, 1), y: hy, vx: rnd(-0.2, 0.2), vy: -rnd(0.4, 0.9), life: 40, max: 40, size: rnd(0.8, 1.8) });
+      }
     }
     else if (s.type === 'atr') { // Rampart anti-torpedo rocket: arcs over, dives in, homes on our torpedo / H-bomb
       const tg = s.target, cx = s.x + s.w / 2, cy = s.y + s.h / 2, wet = cy > SURFACE;
@@ -2046,11 +2080,26 @@ function drawTorpedo(t, enemy) { // heavyweight torpedo: ogive nose, cylinder, t
   ctx.fillStyle = 'rgba(200,210,220,0.45)'; ctx.fillRect(tail - 1, Math.sin(T * 0.9 + cx) * R * 0.45 - 0.25, 1.2, 0.5); // spinning rotor
   ctx.restore();
 }
-function drawDecoy(d) { // small yellow sonar lure with a blinking light
-  ctx.save(); ctx.translate(d.x, d.y); ctx.rotate(Math.sin(T * 0.1 + d.vy) * 0.3);
-  ctx.fillStyle = '#ffb300'; ctx.fillRect(-5, -2.5, 10, 5);
-  ctx.fillStyle = '#5a3d00'; ctx.fillRect(-5, -2.5, 2, 5); ctx.fillRect(3, -2.5, 2, 5);
-  ctx.fillStyle = T % 20 < 10 ? '#fff' : '#ffe08a'; ctx.beginPath(); ctx.arc(0, -3.5, 1.5, 0, 7); ctx.fill();
+function drawDecoy(d, enemy) { // distress-flare style decoy: red tube, white bands (enemy: gunmetal, yellow bands), burning head with a flickering glow
+  const burn = d.life == null || d.life >= 40, k = burn ? 0.85 + 0.15 * Math.sin(T * 1.7 + (d.ph || 0)) + Math.random() * 0.1 : 0;
+  ctx.save(); ctx.translate(d.x, d.y); ctx.rotate(d.a == null ? 0.25 : d.a); // burning end up
+  if (burn) { // glow halo (cached gradient, no shadowBlur)
+    if (!GR.flare) {
+      GR.flare = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+      GR.flare.addColorStop(0, 'rgba(255,240,200,0.9)'); GR.flare.addColorStop(0.25, 'rgba(255,90,40,0.55)'); GR.flare.addColorStop(1, 'rgba(255,40,20,0)');
+    }
+    const r = 9 * k;
+    ctx.save(); ctx.translate(0, -5); ctx.scale(r, r); ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = GR.flare; ctx.beginPath(); ctx.arc(0, 0, 1, 0, 7); ctx.fill(); ctx.restore();
+  }
+  ctx.fillStyle = enemy ? '#3a3f45' : '#c62020'; ctx.fillRect(-1.6, -4, 3.2, 9); // tube
+  ctx.fillStyle = enemy ? '#ffd23f' : '#f2f2f2'; ctx.fillRect(-1.6, -1.5, 3.2, 1); ctx.fillRect(-1.6, 1.5, 3.2, 1); // bands
+  ctx.fillStyle = enemy ? '#5a6068' : '#e04848'; ctx.fillRect(-1.6, -4, 1, 9); // shine
+  ctx.fillStyle = '#3a2a22'; ctx.fillRect(-1.8, 4.2, 3.6, 1.2); // end cap
+  if (burn) { // burning head: white-hot core in a red flame
+    ctx.fillStyle = '#ff5a28'; ctx.beginPath(); ctx.ellipse(0, -5.2, 2.2, 2.6 * k, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#fff3c4'; ctx.beginPath(); ctx.arc(0, -4.9, 1.2 * k, 0, 7); ctx.fill();
+  } else { ctx.fillStyle = '#4a1a10'; ctx.fillRect(-1.6, -5, 3.2, 1.2); } // burnt out
   ctx.restore();
 }
 function drawCharge(s) { // depth charge barrel
@@ -2415,12 +2464,8 @@ function drawRampart(x, y, a, kick) { // Naval Group Rampart: turret with 4 boxy
   ctx.restore();
 }
 
-function drawCM(s) { // enemy sub decoy: dark red canister with a blinking light
-  ctx.save(); ctx.translate(s.x + 3, s.y + 3); ctx.rotate(Math.sin(T * 0.1 + s.vx) * 0.3);
-  ctx.fillStyle = '#8a1c1c'; ctx.fillRect(-5, -2.5, 10, 5);
-  ctx.fillStyle = '#3a0a0a'; ctx.fillRect(-5, -2.5, 2, 5); ctx.fillRect(3, -2.5, 2, 5);
-  ctx.fillStyle = T % 20 < 10 ? '#ff5050' : '#ffd0d0'; ctx.beginPath(); ctx.arc(0, -3.5, 1.5, 0, 7); ctx.fill();
-  ctx.restore();
+function drawCM(s) { // enemy sub decoy: the same flare, enemy colors (box 6x6, flare at its center)
+  ctx.save(); ctx.translate(3, 3); drawDecoy(s, true); ctx.restore();
 }
 function drawBoss(e) { // Typhoon-class sub: our hull art at scale 5, flipped, with hatches and a bow laser
   drawShip(e.x, e.y - 42, '#c62828', false, 5, true, e.hull);
@@ -2674,6 +2719,11 @@ function drawParticles() {
     } else if (p.kind === 'ring') {
       ctx.globalAlpha = a; ctx.strokeStyle = '#fff'; ctx.lineWidth = 3;
       ctx.beginPath(); ctx.arc(p.x, p.y, (1 - a) * (p.r || 60), 0, 7); ctx.stroke();
+    } else if (p.kind === 'sonar') { // decoy transmission: two thin acoustic wavefronts
+      const r = (1 - a) * p.r;
+      ctx.globalAlpha = a * 0.55; ctx.strokeStyle = '#ffb08a'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 7); ctx.stroke();
+      if (r > 6) { ctx.globalAlpha = a * 0.3; ctx.beginPath(); ctx.arc(p.x, p.y, r - 5, 0, 7); ctx.stroke(); }
     } else if (p.kind === 'drop') {
       ctx.globalAlpha = a; ctx.fillStyle = '#d8f3ff';
       ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, 7); ctx.fill();
@@ -2826,6 +2876,19 @@ function drawHelp(paused) { // full-screen welcome page (threat recognition); al
     ctx.fillStyle = armed ? 'rgba(120,10,10,0.95)' : 'rgba(60,10,10,0.85)'; ctx.fillRect(r.x, r.y, r.w, r.h);
     ctx.strokeStyle = '#ff3a30'; ctx.lineWidth = 1.5; ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
     text(armed ? 'CONFIRM?' : 'CLEAR DATA', r.y + r.h / 2 + 5, 15, armed ? '#fff' : '#ff8a80', r.x + r.w / 2);
+    if (!MOBILE) { // top right: full screen toggle (also Ctrl+Enter)
+      const f = FULL_BTN, on = isFullscreen(), ix = f.x + 14, iy = f.y + f.h / 2, d = 6, g = on ? -3 : 0;
+      ctx.fillStyle = 'rgba(10,30,50,0.9)'; ctx.fillRect(f.x, f.y, f.w, f.h);
+      ctx.strokeStyle = '#7f7'; ctx.lineWidth = 1.5; ctx.strokeRect(f.x + 0.5, f.y + 0.5, f.w - 1, f.h - 1);
+      ctx.beginPath(); // 4 corner brackets: pointing out (enter) or in (exit)
+      for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+        const cx = ix + sx * (d + g), cy = iy + sy * (d + g), k = on ? 1 : -1;
+        ctx.moveTo(cx + k * sx * 4, cy); ctx.lineTo(cx, cy); ctx.lineTo(cx, cy + k * sy * 4);
+      }
+      ctx.stroke();
+      text(on ? 'EXIT FULL SCREEN' : 'FULL SCREEN', f.y + f.h / 2 + 4, 11, '#7f7', f.x + 28, 'left');
+      text('CTRL+ENTER', f.y + f.h + 12, 9, '#9ab', f.x + f.w / 2);
+    }
   }
   else if (MOBILE) {
     text('TAP to deploy', 408, 24, '#7f7');
@@ -2987,7 +3050,7 @@ function draw() {
   }
   if (level >= UNLOCK.decoys) {
   text('D', 84, 13, '#fff', 10, 'left');
-  ctx.globalAlpha = decoyCool ? 0.35 : 1; drawDecoy({ x: 30, y: 80, vy: 0 }); drawDecoy({ x: 38, y: 82, vy: 1 }); ctx.globalAlpha = 1;
+  ctx.globalAlpha = decoyCool ? 0.35 : 1; drawDecoy({ x: 28, y: 82 }); drawDecoy({ x: 36, y: 82 }); ctx.globalAlpha = 1;
   ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(48, 77, 40, 5); // reload bar
   ctx.fillStyle = decoyCool ? '#ffb300' : '#7CFC00'; ctx.fillRect(48, 77, 40 * (1 - decoyCool / DECOY_COOL), 5);
   }
@@ -3076,6 +3139,7 @@ addEventListener('keydown', e => {
   keys[e.code] = true;
   if ([' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) e.preventDefault();
   initAudio();
+  if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); if (!e.repeat) toggleFullscreen(); return; } // any screen
   if (state === 'shop') {
     if (e.key === 'ArrowUp') shopCursor = (shopCursor + SHIPS.length - 1) % SHIPS.length;
     if (e.key === 'ArrowDown') shopCursor = (shopCursor + 1) % SHIPS.length;
@@ -3117,6 +3181,7 @@ const BTN = [ // logical px; on: shown from that mission
   { id: 'pause', x: 26, y: 74, r: 14, c: '#cde' },
 ];
 const CLEAR_BTN = { x: W - 150, y: 408, w: 130, h: 28 }; // pause screen
+const FULL_BTN = { x: W - 150, y: 12, w: 130, h: 24 }; // pause screen, desktop
 const ARMORY_TITLE = { x: W / 2 - 130, y: 416, w: 120, h: 26 }, ARMORY_OVER = { x: W / 2 + 40, y: H / 2 + 38, w: 120, h: 28 }, SHOP_BACK = { x: 20, y: 416, w: 100, h: 28 };
 const held = {}, touchState = {}; // touch id -> button id; touch id -> state when it began
 const btnOn = b => !b.on || level >= UNLOCK[b.on];
@@ -3130,6 +3195,15 @@ function goFullscreen() { // Android: full screen + landscape lock. iPhone Safar
     const p = rq.call(el, { navigationUI: 'hide' });
     if (p && p.then) p.then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape')).catch(() => {});
   } catch {}
+}
+
+const isFullscreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+function toggleFullscreen() { // desktop: pause screen button and Ctrl+Enter
+  try {
+    if (isFullscreen()) { const ex = document.exitFullscreen || document.webkitExitFullscreen; const p = ex && ex.call(document); if (p && p.catch) p.catch(() => {}); }
+    else { const el = document.documentElement, rq = el.requestFullscreen || el.webkitRequestFullscreen; const p = rq && rq.call(el); if (p && p.catch) p.catch(() => {}); }
+  } catch {}
+  tone(800, 0.06, 'sine', 0.05);
 }
 
 function pressBtn(b, id) {
@@ -3165,10 +3239,14 @@ function pressClear() { // first press arms, second (within 3 s) wipes the save
   if (performance.now() - clearArm < 3000) clearData();
   else { clearArm = performance.now(); tone(220, 0.12, 'square', 0.06); }
 }
-if (!MOBILE) { // mouse: the pause screen's CLEAR DATA button
+if (!MOBILE) { // mouse: the pause screen's CLEAR DATA and FULL SCREEN buttons
   const mouseXY = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * W, (e.clientY - r.top) / r.height * H]; };
-  cv.addEventListener('click', e => { if (state === 'pause' && inRect(...mouseXY(e), CLEAR_BTN)) pressClear(); });
-  cv.addEventListener('mousemove', e => { cv.style.cursor = state === 'pause' && inRect(...mouseXY(e), CLEAR_BTN) ? 'pointer' : ''; });
+  cv.addEventListener('click', e => {
+    if (state !== 'pause') return;
+    const [x, y] = mouseXY(e);
+    if (inRect(x, y, CLEAR_BTN)) pressClear(); else if (inRect(x, y, FULL_BTN)) toggleFullscreen();
+  });
+  cv.addEventListener('mousemove', e => { const [x, y] = mouseXY(e); cv.style.cursor = state === 'pause' && (inRect(x, y, CLEAR_BTN) || inRect(x, y, FULL_BTN)) ? 'pointer' : ''; });
 }
 if (MOBILE) {
   addEventListener('touchstart', e => {
@@ -3240,7 +3318,7 @@ function drawTouch() { // stick and weapon buttons over the game
       text('LASER', b.y + 12, 9, b.c, b.x);
     } else if (b.id === 'bomb') { drawHBomb({ x: b.x - 2.5, y: b.y - 19 }); text('H-BOMB', b.y + 8, 9, b.c, b.x); text(hbombs, b.y + 19, 9, '#fff', b.x); }
     else if (b.id === 'decoy') {
-      drawDecoy({ x: b.x - 5, y: b.y - 12, vy: 0 }); drawDecoy({ x: b.x + 5, y: b.y - 10, vy: 1 }); text('DECOY', b.y + 10, 9, b.c, b.x);
+      drawDecoy({ x: b.x - 4, y: b.y - 8 }); drawDecoy({ x: b.x + 4, y: b.y - 8 }); text('DECOY', b.y + 10, 9, b.c, b.x);
       if (decoyCool) { ctx.strokeStyle = '#ffb300'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r - 3, -Math.PI / 2, -Math.PI / 2 + 6.283 * (1 - decoyCool / DECOY_COOL)); ctx.stroke(); } // reload
     } else if (b.id === 'bubble') {
       ctx.strokeStyle = b.c; ctx.lineWidth = 1.2;
